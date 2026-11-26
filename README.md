@@ -1,20 +1,22 @@
 # Vault
 
-**You don't remember the filename. You remember what was in it.**
+**A private, local library and player for your NSFW collection.**
 
-A title tells you a studio, maybe who's in it. It says nothing about the act, the setting, or the scene you are trying to find again, so a big library comes down to guesswork and scrubbing.
+Vault turns the videos, pictures and audio on your drives into a full-screen library and a real player, on your own machine. It can't be taken offline, DMCA'd or deplatformed, because it was never online.
 
-Vault fixes that on your own machine. A small local vision model watches every video, image and audio file and writes down what is actually there: the action, who is on screen, the setting, the mood, even on-screen text and logos. Then you search the way you remember.
-
-Around that search is a library built for collectors:
-
-- **A player that plays your files.** MKV, AVI, TS, AC3 audio and more are converted on the fly, with a beat bar, A/B loops, hover previews and Lovense support.
-- **Your library, your rules.** Duplicate detection, a mover for when a drive changes, playlists and collections, and a privacy mode for screen sharing.
-- **Locked when you want it.** One password encrypts the whole library, and it locks itself when you walk away.
+- **Library and player.** Filters in a rail, a preview pane to look, rate and fave before you play, and a player that plays MKV, AVI, TS and FLV right in the app, with AC3 and DTS audio converted on the fly, a beat bar, A-B loops, hover previews and Lovense support.
+- **Wall.** Fill the screen with a collage of your own clips and pictures, a few videos playing at once, fed by a filter, a collection or a saved search.
+- **Playlists and Flow.** Every collection is a playlist. Put it in order by hand, or let Flow order it by loudness, tempo and energy so each file leads into the next.
+- **Stage for Discord and streams.** Play a playlist in its own clean window, so viewers see the video and not your library, with a countdown, "Plays in" times and a set log.
+- **Share privately.** Send files to a friend as an encrypted archive with a link and a password. Personal details are removed from the packed copies first.
+- **Themes.** Dark or Light, six color sets, or your own colors.
+- **Locked when you want it.** One password encrypts everything Vault knows about your collection (titles, tags, notes, history, thumbnails, subtitles, faces), and it locks itself when you walk away. Your media files stay as they are on your drive.
 
 For PMV fans there is more: find every clip that shares a song and play them in sync, cut mixes from your own library, and earn quests and achievements for curating it.
 
-100% local. No account, no cloud, no telemetry.
+**Optional local AI.** Point Vault at a small vision model on your own PC (LM Studio, Ollama or vLLM) and it describes and tags every file, so you can search by what is in the scene instead of the filename. It can also find faces and write subtitles. Vault works fully without it.
+
+100% local. No account, no cloud, no telemetry: nothing leaves your machine unless you share it.
 
 [**⬇ Download for Windows or Linux**](../../releases/latest) · [Setup guide](SETUP.md) · [Full feature list](https://aericocode.github.io/Vault/)
 
@@ -23,6 +25,11 @@ Made with 🌿 by [aericocode](https://ko-fi.com/aericocode)
 ![Vault](og.png)
 
 ## Quick start
+
+Vault runs on its own. You don't need LM Studio or any AI to browse, play,
+build playlists, stream on Stage or share. The AI is optional: if you want it,
+[AI setup](#ai-setup) and [SETUP.md §2](SETUP.md#2-ai-backend-lm-studio-or-ollama)
+walk you through it.
 
 ### Windows
 
@@ -65,14 +72,15 @@ macOS has no packaged build. Running from source may work, see
 
 ## What you need
 
-**Nothing.** Browsing, playing, tagging and organizing your library work out of the box.
+**Nothing.** Browsing, playing, the Wall, playlists, Flow, Basic Stage, Share privately, tagging and organizing your library work out of the box. Share privately packs with 7-Zip, which comes with Vault.
 
 Each of the following features adds one optional dependency:
 
 | Feature | Needs |
 |---|---|
 | AI scanning / semantic search | a local vision model via [LM Studio](https://lmstudio.ai/download#lm-studio-download-heading), Ollama or vLLM: [step-by-step guide](SETUP.md#2-ai-backend-lm-studio-or-ollama) |
-| Thumbnails, hover-scrub, beat bar | ffmpeg, **one click**: Vault offers to download it on first launch |
+| Full Stage (the mpv window you share in Discord) | mpv. Without it, Stage runs as Basic, the browser's picture-in-picture (videos only) |
+| Thumbnails, hover-scrub, beat bar, Flow measuring | ffmpeg, **one click**: Vault offers to download it on first launch |
 | Subtitles / transcription | Python + faster-whisper |
 | Music ID | fpcalc, same one-click banner |
 | Face search | face models (about 213 MB), one click when you turn it on: [guide](SETUP.md#7-face-search) |
@@ -83,20 +91,78 @@ See [SETUP.md](SETUP.md) for the full walkthrough and model recommendations by V
 
 | | |
 |---|---|
-| **Understands your files** | A local vision model watches every video, image, GIF, audio file and document and writes structured metadata: scene, action, camera angle, lighting, expression, on-screen text |
-| **Search that works** | Boolean, fuzzy, metadata-only, and 🧠 semantic search ("crimson" finds red images) |
+| **Library** | A full-screen library: filters in a rail, a preview pane to look, rate and fave before you play, cards with a size slider or a table |
+| **Player** | MKV, AVI, TS and FLV play in the app with AC3 and DTS audio converted on the fly. Song sections and a heat ridge on the timeline, beat bar, A-B loops, mini player |
+| **Wall** | A collage of your own clips and pictures with a few videos playing at once, in Horizontal rows or Vertical columns |
+| **Playlists & Flow** | Every collection is a playlist: your own order, Skip, Up next, import and export. Flow orders it by loudness, tempo and energy along the shape you pick |
+| **Stage** | Plays a playlist in its own window for Discord and streams: full Stage in mpv, or Basic picture-in-picture with nothing to install. Countdown, "Plays in" times and a set log |
+| **Share privately** | Pack files into an encrypted archive, upload it, and send a friend the link and the password. Personal details are removed from the packed copies |
+| **Themes** | Dark or Light, six color sets, or your own colors, across every screen |
+| **Understands your files** *(optional AI)* | A local vision model watches every video, image, GIF, audio file and document and writes structured metadata: scene, action, camera angle, lighting, expression, on-screen text. AI scan Off, On or Auto |
+| **Search that works** | Boolean, fuzzy, metadata-only, subtitle search, and 🧠 semantic search with the AI ("crimson" finds red images) |
 | **Music ID** | Local audio fingerprints find every file sharing a song, then play them stacked in sync |
 | **Face search** | Click a face to see every file that person is in, or search with a photo or a paused video frame. A 👤 Faces tab sorts everyone into people you can name. Runs on your computer, off until you turn it on |
 | **PMV Studio** | Pick a soundtrack and sources: Vault cuts a beat-synced music video for you and renders it to MP4 |
 | **Stack & mix** | Stack up to 4 videos in sync or grid up to 8, with a mixer (opacity, masks, blends, presets) and MP4 export |
 | **Games & quests** | Play your own library, earn points, streaks, levels, themes and achievements (all opt-in) |
-| **Encryption** | Password-locked database with auto-lock on idle |
+| **Encryption** | Password-locked database and thumbnails with auto-lock on idle. Your media files are not encrypted |
 | **Trash with undo** | Real file moves, never silent deletes, with one-click Undo and per-file Restore |
 | **Dedupe** | Filename+size matching at scan time plus perceptual hashing for visual duplicates |
 
 <details>
-<summary><b>🧠 AI scanning &amp; tagging</b></summary>
+<summary><b>▶️ Playlists, Flow &amp; Stage</b></summary>
 
+- **Playlist order**: drag tiles or table rows into your own order, and mark a file **Skip** so playback passes over it without taking it out of the collection
+- **Flow**: measures loudness, tempo and energy on your PC, then follows the shape you pick: Smooth only, Build up, Waves, Peak or Steady. Every hand-over is graded smooth, noticeable or a jump; drag files right on the chart, and save the orders you like
+- **Lanes and stream tags**: lanes sit under the Flow chart. Role comes with tags like Opener, Centerpiece and Closer, and you can add lanes of your own, each tag with its color and key. A tag's Place (first, last, at a peak) tells Flow where it goes
+- **Up next**: a short queue that plays before the list carries on. Pick a file and press U, or Shift+U to play it next
+- **Import and export**: turn a VLC or PotPlayer playlist (M3U / M3U8, XSPF, PLS, DPL) into a collection, or export one as M3U8 to play where Vault isn't
+- **Stage**: plays the playlist in its own window, so viewers see the video and not your library. You run it from the Stage bar at the bottom of Vault
+- **Full or Basic**: full Stage plays in mpv, with loudness leveling, and plays files your browser can't. Without mpv, Basic Stage is a picture-in-picture window with nothing extra to install
+- **Countdown**: the stream time left and the end time, with optional warnings and a clock on the picture
+- **"Plays in"**: the preview pane tells you how long until a file is up
+- **Set log**: what played and when, so you can answer "what was that 35 minutes ago?", copied as a list or as chapters
+- Click a file to look at it without interrupting; double-click sends it to Stage
+
+</details>
+
+<details>
+<summary><b>🧱 Wall</b></summary>
+
+- **Two layouts**: Horizontal fills the screen with full-width rows, Vertical stacks columns. Small, Medium or Large, and Even, Mixed or Wild sizes
+- **Grid or Scroll**: Grid holds still and swaps blocks at the pace you pick; Scroll drifts the whole board
+- **Sound**: Off, On hover, Follow a clip, or rotate between clips every 10 to 60 seconds
+- **Videos** on Auto or a number you set. Open a clip from the full-screen Wall and it plays full screen; Escape takes you back
+- Feed it the current filter, a collection, or a saved search
+
+</details>
+
+<details>
+<summary><b>🔒 Share privately</b></summary>
+
+Off until you turn it on, and nothing is uploaded unless you start a share and confirm it.
+
+- Pick files or a whole collection. Vault packs them into an **encrypted 7z archive** (AES-256, file names hidden), tests it, uploads it to gofile.io and gives you a ready message with the link and the password
+- **Personal details check**: before packing, Vault looks for location, device, names and folder paths and removes them from the packed copies. Your originals are never changed
+- The password never leaves your PC. **Copy as block** puts the link and the password together
+- **My shares** lists what you have uploaded, with copy, open, delete and an optional delete timer
+- 7-Zip comes with Vault, so there is nothing to install
+
+</details>
+
+<details>
+<summary><b>🎨 Themes</b></summary>
+
+- Dark, Light or Match system, with six color sets: Vault, Midnight, Ember, Forest, Rose and Graphite
+- **Custom**: pick a highlight and a second color, and tint the background to match
+- Every screen follows the theme, from the player to the Stage bar and the Wall. Changes apply at once, and Vault nudges a color that would make text hard to read
+
+</details>
+
+<details>
+<summary><b>🧠 AI scanning &amp; tagging (optional)</b></summary>
+
+- **AI scan Off, On or Auto** (Settings > General): Off means Vault never scans and never asks; Auto stops the moment something plays and carries on after
 - **Extended metadata schema**: positioning, action, camera angle, lighting, expression, etc,. Includes OCR style text transcription like logos, site names, studios, actress name, etc.
 - **All media types**: video, image, GIF, audio, documents 
 - **Audio transcription**: Extracts ~10mins of audio to give the AI more context of the scene
@@ -123,6 +189,9 @@ Start with `start.bat` (Windows) or `./start.sh` (Linux, macOS) to launch a full
 - **Hand-edit AI metadata**: correct description, themes, tags, language, content type, or quality flag directly from the sidebar when the AI got it wrong
 - **Rescan from the UI**: re-run AI analysis on a single file (fixes failed/bad scans) without a full CLI rescan
 - **Run two Vaults**: give each library its own port and instance name in Settings; the name replaces "Vault" in the title and header, and shows on the lock screen too, so two windows on different ports are easy to tell apart even while locked
+- **Activity button**: one button in the top bar for everything running: AI scan, shares, face search, adding files and the trash queue
+- **Exit Vault**: a button at the bottom left of Settings stops Vault cleanly. It asks first, and it's the way to stop Vault on Linux when there is no window to close
+- **Drop files in place** (Windows): with a collection open in playlist order, drag files in from your file manager, hold still for a second, then drop them exactly where they go
 - **🔌 Backend tab**: see your AI server at a glance, pick which model scans use, and load the same vision model more than once in LM Studio so Vault spreads scans across every loaded copy in parallel
 - **Note snippets**: reusable quick-notes ("Watch again", timestamps) with one-click, and clickable `MM:SS` timestamps that seek the player
 - **Resume playback**: remembers your position per file; view counts track real engagement (requires ≥75% watched for video/audio)
@@ -162,7 +231,7 @@ Find every file containing a song, then play them **stacked in sync**. Powered b
 - **Seed packs (song fingerprints without the audio)**: export your references as a portable `vault-songseed.json` (📦 Seed packs in the Editor, or `music export-seedpack`), and import packs from anywhere: songs + fingerprints land in the DB (no MP3s needed on disk) and every fingerprinted file is rescanned against just the new references. Strictly pull: you download and pick the file yourself, nothing auto-fetches. Re-importing is idempotent, so updated packs only add what's new
 - **≈ Audio similarity**: "Similar audio" (tile hover or player sidebar) ranks the library by songs shared with a file, rarity-weighted, with `≈NN%` badges on the results: a sorting metric no filename search can fake
 - **Search by song**: song cards in the Editor tab (search artist/title; each card is a 2×2 mosaic of its videos) plus a `🎵 Song` filter in the Library filter panel
-- **Editor tab (Library | Collections | *Editor* | Games)**: songs are reference points. Open a card to pick among the VIDEOS sharing that song (hover a video for full details incl. its path). Stack up to **4** layered in sync, or Grid up to **8** side by side in a wall view. Audio tracks auto-align on the shared song using the matcher's offsets; sync nudge buttons persist corrections. Use the visual waveforms to visualize alignment and drag files to align(best when paused).
+- **Editor tab (Library | Collections | Faces | *Editor* | Games | Wall)**: songs are reference points. Open a card to pick among the VIDEOS sharing that song (hover a video for full details incl. its path). Stack up to **4** layered in sync, or Grid up to **8** side by side in a wall view. Audio tracks auto-align on the shared song using the matcher's offsets; sync nudge buttons persist corrections. Use the visual waveforms to visualize alignment and drag files to align(best when paused).
 - **🎚 Mixer sidebar**: per-track opacity, volume, audio master, spotlight, mask effects (gradients, radial, wipe, blend modes), balanced-blend, presets and export in a toggleable sidebar (M key) that keeps the video centered. The mix uses the main player's control bar: seek bar, ⏪◀▶▶⏩, **A-B looping**, speed (applied to every track), volume, with 🎚 Mixer in the Info slot
 - **🎛 Custom mixes in the Library**: save a mix (title + description) as a playable Library tile: no ffmpeg export needed, it replays through the Editor with layout/effects/volumes restored. Never AI-scanned; ratings, notes and faves work like any file; title/description editable on reopen
 - **Song picker with seed catalog**: the tag form and edit modal suggest from your songs (🔗 = fingerprinted, auto-matchable) plus an offline artist/title seed catalog (📇, auto-imported from seed.json); names for ~90% of tracks even before you have their audio
@@ -210,7 +279,7 @@ rather than a gap. To stop it entirely, run with `--no-gamify`.
 
 - **Points & streaks**: earn score for real engagement (rarity- and duration-weighted so a 2-second thumbnail flip earns far less than actually watching something), with daily streak tracking and decay for inactivity
 - **Quests**: dynamic objectives generated from your own library and habits (e.g. "watch 3 unrated horror videos")
-- **Levels & unlockable UI themes**: 11 levels from Casual Browser to Send Help, unlocking 6 cosmetic color themes for the viewer as you level up
+- **Levels & unlockable UI themes**: 11 levels from Casual Browser to Send Help, unlocking 6 color themes for the score chip, its accents and the stats card as you level up
 - **Achievements**: Challenging visible and secret achievements for you to earn.
 - **Full analytics page**: watch-time heatmap (hour × day of week), 90-day activity chart, 12-week theme drift, library growth over time
 - **Shareable stats card**: generate a PNG snapshot of your stats/score to share
@@ -344,13 +413,17 @@ all stats live in your local database and never leave the machine.
 
 | What | When | Controlled by |
 |------|------|---------------|
-| **One-time AI model downloads** (whisper, OPUS-MT translation packs, speaker-diarization models) | First use of a model that isn't on disk yet, **and only after you agree to that specific model** | Vault asks **per model**, naming it and its size. Approving the transcription model does not approve a translation pack. Answers are remembered per model (Settings → *AI model downloads*). `SUB_ALLOW_DOWNLOADS=1` pre-approves everything, `0` refuses everything. Models already on disk always load offline |
+| **One-time AI model downloads** (whisper, OPUS-MT translation packs, speaker-diarization models, face search models) | First use of a model that isn't on disk yet, **and only after you agree to that specific model** | Vault asks **per model**, naming it and its size. Approving the transcription model does not approve a translation pack. Answers are remembered per model (Settings → *AI model downloads*). `SUB_ALLOW_DOWNLOADS=1` pre-approves everything, `0` refuses everything. Models already on disk always load offline |
 | **"Check for updates"** in Settings → About | Only when you click it | A single GET to `api.github.com`. Nothing else is sent, and never automatic |
+| **⬇ Download for ffmpeg / fpcalc** | Only when you click the banner | Fetches the tool's archive (ffmpeg from gyan.dev on Windows or GitHub on Linux, fpcalc from GitHub), then nothing more |
+| **Share privately** | Only when you start a share and confirm it (plus the delete timer and Delete in My shares) | Off until you turn it on in Settings. Talks only to `api.gofile.io` and `upload.gofile.io`, and sends only the encrypted archive you packed |
+| **Moving to Cove** (`vault export-cove`) | Only when you run the command | Goes to the Cove address you give it, usually on this computer |
 | **Your AI backend endpoint** | Every scan / chat | Localhost LM Studio/Ollama by default. If **you** point it at a remote endpoint, frames and text go there: your call |
 | **Lovense device control** (if you use it) | User-initiated | Traffic stays on your LAN, but the HTTPS transport resolves `<ip>.lovense.club` via DNS, which discloses Lovense use to your DNS resolver |
 
 **`VAULT_OFFLINE=1`: the hard switch.** Set it and networking is loopback-only
-app-wide: model downloads, update checks, and remote AI endpoints all refuse,
+app-wide: model downloads, tool downloads, update checks, shares, and remote
+AI endpoints all refuse,
 while localhost services keep working normally. It implies
 `SUB_ALLOW_DOWNLOADS=0` and sets `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` for the
 Python sidecars.
@@ -393,9 +466,8 @@ as a fallback, so an existing `.env` keeps working.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SUB_ALLOW_DOWNLOADS` | `1` | Governs the one-time fetch of AI models not yet on disk: whisper, OPUS-MT translation packs, and speaker-diarization models. `1` = allow (warned once); `0` = never touch the network (a missing model errors with pre-install instructions). Installed models always load offline |
 | `SUB_ALLOW_DOWNLOADS` | *(ask per model)* | One-time AI model fetches. Unset, Vault prompts before **each** model it needs and remembers that answer separately. `1` = pre-approve everything, `0` = never. The environment always overrides the in-app switches |
-| `VAULT_OFFLINE` | `0` (unset) | Hard offline switch. `1` = loopback-only networking app-wide (model downloads, update checks, and remote AI endpoints all refuse); localhost services keep working. Implies `SUB_ALLOW_DOWNLOADS=0` and sets `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` for the Python sidecars |
+| `VAULT_OFFLINE` | `0` (unset) | Hard offline switch. `1` = loopback-only networking app-wide (model downloads, tool downloads, update checks, shares, and remote AI endpoints all refuse); localhost services keep working. Implies `SUB_ALLOW_DOWNLOADS=0` and sets `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` for the Python sidecars |
 
 </details>
 
@@ -471,7 +543,12 @@ Vault/
 ├── server/
 │   ├── index.js             # Local viewer server (API, media streaming, thumbnails)
 │   ├── music-routes.js      # Music ID API (fingerprints, songs, mixes, exports)
-│   └── gamify-routes.js     # Obsession Score API (gated on the --no-gamify kill switch)
+│   ├── flow-routes.js       # Flow measuring and orders
+│   ├── stage-routes.js      # Stage (mpv or Basic), countdown, set log
+│   ├── share-routes.js      # Share privately
+│   ├── playlist-import-routes.js # Playlist import and export
+│   ├── gamify-routes.js     # Obsession Score API (gated on the --no-gamify kill switch)
+│   └── ...                  # One *-routes.js file per feature (faces, studios, games, ...)
 ├── lib/
 │   ├── llm-client.js        # Shared LM Studio client + load balancer + JSON repair
 │   ├── vision-api.js        # Thin vision wrapper
@@ -488,6 +565,11 @@ Vault/
 │   ├── quests.js            # Dynamic quest generation
 │   ├── operations.js
 │   ├── work-queue.js        # Parallel processing
+│   ├── net.js               # The one place Node-side network requests go through
+│   ├── flow/                # Flow: loudness, tempo and energy measuring
+│   ├── stage/               # Stage engine, mpv host, set log
+│   ├── share/               # Share privately: personal details check, 7z packing, gofile client
+│   ├── playlist/            # Playlist import (M3U, XSPF, PLS, DPL) and M3U8 export
 │   ├── musicid/             # Music ID engine
 │   │   ├── fingerprint.js   #   ffmpeg + fpcalc chunking with silence gate
 │   │   ├── matcher.js       #   BER matching + span grouping (XOR/popcount)
@@ -502,12 +584,18 @@ Vault/
 │   ├── music.js             # Music ID CLI (check-tools/fingerprint/scan/status)
 │   └── status.js / export.js / query.js / json.js / embed.js / mark-executed.js
 ├── player-lib/              # Viewer front-end (tiles, player, filters, search)
-│   ├── tabs.js              # Library | Collections | Editor tab bar
+│   ├── tabs.js              # Library | Collections | Faces | Editor | Games | Wall tab bar
 │   ├── music.js             # Music ID client (queue, sidebar section, song edits)
 │   ├── editor.js            # Editor tab (songs browser + synced stack/grid mixer)
 │   ├── beatbar.js           # Beat-detection visualizer overlay
 │   ├── gamify-ui.js         # Obsession Score UI (stats, quests, analytics, themes)
 │   ├── metadata-edit.js     # In-viewer AI-field editing + rescan
+│   ├── wall.js              # Wall tab
+│   ├── flow.js              # Flow panel and chart
+│   ├── stage-bar.js         # Stage bar at the bottom of the viewer
+│   ├── share-ui.js          # Share privately dialogs and My shares
+│   ├── theme-colors.js      # Themes: color sets, Dark and Light, custom colors
+│   ├── activity.js          # Activity button
 │   └── ...
 └── css/                     # Viewer styles (incl. tiles.css, beatbar.css, music.css, editor.css)
 ```
@@ -528,7 +616,7 @@ Vault/
 | `description` | 2-4 sentence summary |
 | `tags` | Additional descriptive tags |
 
-### Extended Fields (v3.1)
+### Extended Fields
 
 **media_elements** - Array describing scene composition:
 - `positioning` - How people are positioned (sitting, standing, lying, kneeling)
@@ -655,7 +743,7 @@ node vault.js scan ./media -r --retry-errors
 node vault.js scan ./media -r --reprocess
 ```
 
-### Semantic Search (v3.3)
+### Semantic Search
 Search by **meaning** instead of keywords: tick 🧠 Semantic next to the search
 box ("crimson picture" finds red images). Vectors are built from the metadata
 the tagger already extracted (**no media rescan**). One-time backfill:
@@ -695,7 +783,7 @@ surface near-duplicate theme/tag strings (`sci-fi` / `scifi` /
 `science fiction`) as *merge candidates* for one-click consolidation, instead
 of relying only on exact-string normalization.
 
-### Duplicate Detection (v3.3)
+### Duplicate Detection
 Files **≥10MB** whose normalized filename matches an already-analyzed row with
 size within **±1%** are treated as the same content (rehosted/re-muxed copies):
 the scan **copies the existing analysis instead of re-running the AI** (tagged
@@ -709,8 +797,7 @@ a report). Tune via `DUPE_SKIP=false`, `DUPE_MIN_MB`, `DUPE_SIZE_TOLERANCE`.
 
 ### Transcription Behavior
 - **Video:** pass `--transcribe-video` to transcribe audio via the persistent
-  faster-whisper sidecar. Works in every scan mode, **including `--all-types`**
-  (this used to be silently dropped, fixed in v3.3).
+  faster-whisper sidecar. Works in every scan mode, **including `--all-types`**.
 - **Audio files** (with `--all-types` or `--type audio`) are always transcribed
   through the same persistent sidecar (model loads once per scan, not per file).
 - Transcriptions are stored in the `audio_transcription` column and shown in the viewer.

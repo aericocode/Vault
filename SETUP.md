@@ -1,7 +1,8 @@
 # Vault: Setup & Walkthrough
 
-Everything runs on your machine. Nothing is sent anywhere except your own
-local AI server (LM Studio or Ollama).
+Everything runs on your machine. Nothing is sent anywhere unless you ask for
+it: your own local AI server (LM Studio or Ollama), a model or tool download
+you agree to, an update check you click, or files you choose to share.
 
 ---
 

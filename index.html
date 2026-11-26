@@ -5,21 +5,33 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="./images/favicon.svg">
-  <title>Vault - a private, local library for your NSFW collection</title>
+  <title>Vault - a private, local library and player for your NSFW collection</title>
 
 
-  <meta property="og:title" content="Vault in.">
+  <meta property="og:title" content="Vault In. Press Play.">
   <meta name="description"
-    content="Vault is a private, local, AI-enhanced library for your porn collection. Search by what's actually in every scene, sync shared music, auto-cut PMVs, and keep every file on your own machine.">
+    content="Vault is a private, local library and player for your porn collection. Browse it, play it, fill a wall with clips, build playlists and stream them to Discord from a clean Stage window. An optional local AI can tag every scene, find faces and write subtitles. Nothing leaves your machine unless you share it.">
   <meta property="og:description"
-    content="A private, local, AI-enhanced library for your porn collection. Search by what's in the scene, sync shared music, auto-cut PMVs, and keep every file on your own machine - offline, forever.">
+    content="A private, local library and player for your porn collection. Watch, build playlists and stream them to Discord from a clean Stage window, with an optional local AI that tags scenes, finds faces and writes subtitles. Nothing leaves your machine unless you share it.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://vault.aericode.deno.net/">
   <meta property="og:image" content="https://vault.aericode.deno.net/og.png">
+  <script>
+    // Theme before first paint: the stored choice, or Dark + Vault.
+    (function () {
+      var r = document.documentElement, s = null;
+      try { s = JSON.parse(localStorage.getItem('vault-site-theme') || 'null'); } catch (e) { s = null; }
+      if (!s || typeof s !== 'object') return;
+      var light = s.mode === 'light' || (s.mode === 'system' && window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches);
+      if (light) r.setAttribute('data-mode', 'light');
+      if (["vault","midnight","ember","forest","rose","graphite"].indexOf(s.pal) > 0) r.setAttribute('data-pal', s.pal);
+    })();
+  </script>
   <style>
     /* Design tokens mirror the app (css/variables.css): flat solid surfaces,
      1px --border edges, a single --accent, no decorative gradients. */
     :root {
+      color-scheme: dark;
       --bg-primary: #0f0f0f;
       --bg-secondary: #1a1a1a;
       --bg-tertiary: #252525;
@@ -92,7 +104,7 @@
     .btn-primary {
       background: var(--accent);
       border-color: var(--accent);
-      color: #fff
+      color: var(--on-accent)
     }
 
     .btn-primary:hover {
@@ -122,7 +134,7 @@
 
     .lockbox svg {
       display: block;
-      stroke: #fff
+      stroke: var(--on-accent)
     }
 
     /* ---------- nav ---------- */
@@ -130,7 +142,7 @@
       position: sticky;
       top: 0;
       z-index: 50;
-      background: rgba(15, 15, 15, .9);
+      background: color-mix(in srgb, var(--bg-primary) 90%, transparent);
       backdrop-filter: blur(8px);
       border-bottom: 1px solid transparent;
       transition: border-color .2s;
@@ -266,13 +278,13 @@
       border-radius: 50%;
       background: var(--success);
       flex: 0 0 auto;
-      box-shadow: 0 0 0 0 rgba(34, 197, 94, .5);
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 50%, transparent);
       animation: pulse 2.4s infinite
     }
 
     @keyframes pulse {
       0% {
-        box-shadow: 0 0 0 0 rgba(34, 197, 94, .45)
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 45%, transparent)
       }
 
       70% {
@@ -568,7 +580,7 @@
     .editor-subtab.active {
       background: var(--accent);
       border-color: var(--accent);
-      color: #fff;
+      color: var(--on-accent);
       font-weight: 600
     }
 
@@ -832,7 +844,7 @@
       height: 16px;
       border-radius: 50%;
       background: var(--accent);
-      color: #fff;
+      color: var(--on-accent);
       font-size: .6rem;
       display: grid;
       place-items: center
@@ -855,7 +867,7 @@
       height: 15px;
       border-radius: 50%;
       background: var(--accent);
-      color: #fff;
+      color: var(--on-accent);
       font-size: .58rem;
       display: grid;
       place-items: center;
@@ -920,7 +932,7 @@
       background: var(--accent);
       border: none;
       border-radius: 8px;
-      color: #fff;
+      color: var(--on-accent);
       font-weight: 700;
       font-size: .74rem;
       padding: .45rem;
@@ -1031,7 +1043,7 @@
     .games-btn-primary {
       background: var(--accent);
       border-color: var(--accent);
-      color: #fff;
+      color: var(--on-accent);
       font-weight: 600
     }
 
@@ -1663,7 +1675,7 @@
        ===================================================================== */
 
     :root {
-      --accent-bg: rgba(99, 102, 241, .16);
+      --accent-bg: color-mix(in srgb, var(--accent) 16%, transparent);
       --song: #2dd4bf;
       --hot: #fb923c;
       --note: #facc15;
@@ -1773,7 +1785,7 @@
 
     .mtab.on {
       background: var(--accent);
-      color: #fff;
+      color: var(--on-accent);
       font-weight: 600
     }
 
@@ -1814,8 +1826,8 @@
     }
 
     .mchip .st {
-      color: #fbbf24;
-      background: rgba(251, 191, 36, .12);
+      color: var(--warning);
+      background: color-mix(in srgb, var(--warning) 14%, transparent);
       border-radius: 6px;
       padding: 0 4px;
       font-size: .9em
@@ -1849,9 +1861,9 @@
     }
 
     .mhb.ok {
-      border-color: rgba(34, 197, 94, .55);
+      border-color: color-mix(in srgb, var(--success) 55%, transparent);
       color: var(--success);
-      background: rgba(34, 197, 94, .07)
+      background: color-mix(in srgb, var(--success) 7%, transparent)
     }
 
     .mhb .badge-n {
@@ -1939,11 +1951,11 @@
     .rp.on {
       background: var(--accent);
       border-color: var(--accent);
-      color: #fff
+      color: var(--on-accent)
     }
 
     .rp.on em {
-      color: #dfe0ff
+      color: var(--on-accent)
     }
 
     .rlist {
@@ -2030,7 +2042,7 @@
 
     .mtb.on {
       border-color: var(--accent);
-      color: #c7c9ff;
+      color: var(--accent-text);
       background: var(--accent-bg)
     }
 
@@ -2056,7 +2068,7 @@
 
     .mseg .on {
       background: var(--accent-bg);
-      color: #c7c9ff
+      color: var(--accent-text)
     }
 
     .msize {
@@ -2072,7 +2084,7 @@
       width: 58px;
       height: 4px;
       border-radius: 2px;
-      background: linear-gradient(90deg, var(--accent) var(--v, 40%), #444 var(--v, 40%))
+      background: linear-gradient(90deg, var(--accent) var(--v, 40%), var(--border) var(--v, 40%))
     }
 
     .msize i::after,
@@ -2137,7 +2149,7 @@
       padding: 1px 5px;
       border-radius: 4px;
       background: var(--accent);
-      color: #fff
+      color: var(--on-accent)
     }
 
     .mthumb .hot {
@@ -2216,9 +2228,9 @@
     .mb {
       padding: 0 4px;
       border-radius: 3px;
-      border: 1px solid #3b3e8a;
-      color: #a5b4fc;
-      background: rgba(99, 102, 241, .12)
+      border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+      color: var(--accent-text);
+      background: color-mix(in srgb, var(--accent) 12%, transparent)
     }
 
     .mb.n {
@@ -2305,7 +2317,7 @@
     .mb2.pri {
       background: var(--accent);
       border-color: var(--accent);
-      color: #fff
+      color: var(--on-accent)
     }
 
     .mb2.ic {
@@ -2319,7 +2331,7 @@
     }
 
     .mstars .off {
-      color: #555
+      color: var(--text-muted)
     }
 
     .mlabel {
@@ -2423,7 +2435,7 @@
 
     .wseg .on {
       background: var(--accent);
-      color: #fff
+      color: var(--on-accent)
     }
 
     .wbtn {
@@ -2440,7 +2452,7 @@
 
     .wbtn.on {
       border-color: var(--accent);
-      color: #c7c9ff
+      color: var(--accent-text)
     }
 
     .wsl {
@@ -2690,7 +2702,7 @@
     .pl .scene.night {
       background:
         radial-gradient(ellipse 10% 10% at 74% 24%, rgba(230, 232, 255, .9), rgba(170, 180, 255, .25) 50%, transparent 75%),
-        radial-gradient(ellipse 60% 30% at 40% 80%, rgba(99, 102, 241, .25), transparent 70%),
+        radial-gradient(ellipse 60% 30% at 40% 80%, color-mix(in srgb, var(--accent) 25%, transparent), transparent 70%),
         linear-gradient(180deg, #0c1024 0%, #1c2350 45%, #2c3466 60%, #141a33 61%, #0e1226 100%)
     }
 
@@ -3170,11 +3182,11 @@
     }
 
     .ip {
-      background: #151518;
-      border: 1px solid #26262c;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
       border-radius: 12px;
       overflow: hidden;
-      color: #ececf1;
+      color: var(--text-primary);
       font-size: .8rem;
       line-height: 1.45;
       display: flex;
@@ -3187,15 +3199,15 @@
       align-items: center;
       gap: 4px;
       padding: 10px 12px;
-      border-bottom: 1px solid #26262c
+      border-bottom: 1px solid var(--border)
     }
 
     .qb {
       width: 34px;
       height: 34px;
       border-radius: 8px;
-      background: #25252b;
-      color: #d4d4dc;
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
       display: grid;
       place-items: center;
       font-size: 17px;
@@ -3208,12 +3220,12 @@
 
     .qb.cl {
       background: none;
-      color: #9a9aa6
+      color: var(--text-secondary)
     }
 
     .qb.on {
-      background: #33333b;
-      color: #fff
+      background: var(--bg-hover);
+      color: var(--text-primary)
     }
 
     .qsp {
@@ -3224,25 +3236,25 @@
       display: flex;
       gap: 2px;
       padding: 0 8px;
-      border-bottom: 1px solid #26262c;
+      border-bottom: 1px solid var(--border);
       overflow: hidden
     }
 
     .iptabs span {
       padding: 10px 6px;
       font-size: .74rem;
-      color: #9a9aa6;
+      color: var(--text-secondary);
       white-space: nowrap
     }
 
     .iptabs span.on {
-      color: #fff;
-      box-shadow: inset 0 -2px 0 #6366f1
+      color: var(--text-primary);
+      box-shadow: inset 0 -2px 0 var(--accent)
     }
 
     .iptabs em {
       font-style: normal;
-      color: #a5b4fc;
+      color: var(--accent-text);
       margin-left: 4px
     }
 
@@ -3253,20 +3265,20 @@
     .ipnote {
       position: relative;
       padding: 8px 48px 8px 0;
-      border-bottom: 1px solid #26262c
+      border-bottom: 1px solid var(--border)
     }
 
     .ipnote .ts {
-      color: #6b6b76;
+      color: var(--text-muted);
       font-size: .66rem
     }
 
     .ipnote .tx {
-      color: #e4e4ea
+      color: var(--text-primary)
     }
 
     .ipnote .lnk {
-      color: #a5b4fc;
+      color: var(--accent-text);
       font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
       font-size: .76rem;
       white-space: nowrap
@@ -3278,19 +3290,19 @@
       top: 9px;
       display: flex;
       gap: 8px;
-      color: #77778a;
+      color: var(--text-muted);
       font-size: 14px
     }
 
     .iphint {
-      color: #7e7e8a;
+      color: var(--text-muted);
       font-size: .7rem;
       margin-top: 8px
     }
 
     .ipbox {
-      border-top: 1px solid #26262c;
-      background: #18181b;
+      border-top: 1px solid var(--border);
+      background: var(--bg-primary);
       padding: 10px 12px 12px;
       display: flex;
       flex-direction: column;
@@ -3308,16 +3320,16 @@
       min-width: 0;
       min-height: 36px;
       padding: 7px 10px;
-      background: #232328;
-      border: 1px solid #6366f1;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--accent);
       border-radius: 8px;
-      color: #ececf1;
+      color: var(--text-primary);
       white-space: nowrap;
       overflow: hidden
     }
 
     .ipin .lnk {
-      color: #a5b4fc;
+      color: var(--accent-text);
       font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
       font-size: .76rem
     }
@@ -3326,7 +3338,7 @@
       display: inline-block;
       width: 1px;
       height: 14px;
-      background: #a5b4fc;
+      background: var(--accent-text);
       vertical-align: -2px;
       animation: blink 1.1s step-end infinite
     }
@@ -3337,14 +3349,14 @@
       border-radius: 8px;
       display: grid;
       place-items: center;
-      color: #a1a1aa;
+      color: var(--text-secondary);
       font-size: 17px;
       flex: none
     }
 
     .ib.pri {
-      background: #6366f1;
-      color: #fff
+      background: var(--accent);
+      color: var(--on-accent)
     }
 
     .snip {
@@ -3359,10 +3371,10 @@
       gap: 5px;
       padding: 2px 9px;
       border-radius: 999px;
-      background: #232328;
-      border: 1px solid #33333b;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--bg-hover);
       font-size: .68rem;
-      color: #d4d4dc
+      color: var(--text-primary)
     }
 
     .snip i {
@@ -3372,12 +3384,12 @@
     }
 
     .cpick {
-      background: #18181b;
-      border: 1px solid #2e2e35;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
       border-radius: 10px;
       padding: 6px;
       font-size: .74rem;
-      color: #ececf1;
+      color: var(--text-primary);
       margin-top: 52px;
       box-shadow: 0 12px 32px rgba(0, 0, 0, .45)
     }
@@ -3386,7 +3398,7 @@
       font-size: .6rem;
       letter-spacing: .08em;
       text-transform: uppercase;
-      color: #8b8b97;
+      color: var(--text-secondary);
       padding: 4px 8px 6px
     }
 
@@ -3402,25 +3414,25 @@
       width: 15px;
       height: 15px;
       border-radius: 4px;
-      border: 1px solid #44444c;
+      border: 1px solid var(--border);
       display: grid;
       place-items: center;
       font-size: 11px;
-      color: #fff
+      color: var(--on-accent)
     }
 
     .cpick .it.on .bx {
-      background: #6366f1;
-      border-color: #6366f1
+      background: var(--accent);
+      border-color: var(--accent)
     }
 
     .cpick .nw {
       display: flex;
       align-items: center;
       gap: 6px;
-      color: #a5b4fc;
+      color: var(--accent-text);
       padding: 7px 8px 4px;
-      border-top: 1px solid #26262c;
+      border-top: 1px solid var(--border);
       margin-top: 4px
     }
 
@@ -3530,7 +3542,7 @@
       padding: 2px 7px;
       border-radius: 6px;
       background: var(--accent);
-      color: #fff;
+      color: var(--on-accent);
       font-size: .58rem
     }
 
@@ -3577,7 +3589,7 @@
     .fopt span.pri {
       background: var(--accent);
       border-color: var(--accent);
-      color: #fff
+      color: var(--on-accent)
     }
 
     /* ---------- Modern Settings ---------- */
@@ -3663,7 +3675,7 @@
 
     .sitem.on {
       background: var(--accent);
-      color: #fff
+      color: var(--on-accent)
     }
 
     .sbody {
@@ -3711,7 +3723,7 @@
     }
 
     .sres mark {
-      background: rgba(99, 102, 241, .35);
+      background: color-mix(in srgb, var(--accent) 35%, transparent);
       color: inherit;
       border-radius: 2px;
       padding: 0 1px
@@ -3739,9 +3751,9 @@
       margin: 0 0 1.4rem;
       padding: .35rem .8rem;
       border-radius: 999px;
-      border: 1px solid rgba(99, 102, 241, .45);
+      border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
       background: var(--accent-bg);
-      color: #c7c9ff;
+      color: var(--accent-text);
       font-size: .8rem;
       text-decoration: none;
       vertical-align: top
@@ -3752,7 +3764,7 @@
     }
 
     .newchip b {
-      color: #fff;
+      color: var(--text-primary);
       font-weight: 600
     }
 
@@ -4078,6 +4090,481 @@
       display: none
     }
 
+  
+    /* ---------- themes: tokens from player-lib/theme-colors.js derive() ---------- */
+    :root {
+      --accent-text: #a5b4fc;
+      --on-accent: #fff;
+      --track-progress: #ff4fa3;
+      --ov-progress: #ff4fa3;
+      --flow-e-lo: #38bdf8;
+      --flow-e-hi: #f472b6;
+      --flow-ok: #86efac;
+      --flow-warn: #fcd34d;
+      --flow-bad: #fca5a5;
+      --flow-target: rgba(255, 255, 255, .55);
+      --flow-chip-ink: white;
+      --flow-chip-c: 80%;
+    }
+
+    :root[data-pal="midnight"] {
+      --bg-primary: #0a0d14;
+      --bg-secondary: #111622;
+      --bg-tertiary: #192031;
+      --bg-hover: #1d2438;
+      --border: #232c43;
+      --tag-bg: #232c43;
+      --text-primary: #dddfe3;
+      --text-secondary: #989daa;
+      --text-muted: #818797;
+      --accent: #38bdf8;
+      --accent-hover: #5ac8f9;
+      --accent-bg: rgba(56, 189, 248, 0.16);
+      --accent-text: #73d1fa;
+      --on-accent: #111114;
+      --track-progress: #a78bfa;
+      --ov-progress: #a78bfa;
+    }
+
+    :root[data-pal="ember"] {
+      --bg-primary: #130e0b;
+      --bg-secondary: #201813;
+      --bg-tertiary: #2f231b;
+      --bg-hover: #36281f;
+      --border: #413025;
+      --tag-bg: #413025;
+      --text-primary: #e3e0de;
+      --text-secondary: #a89f99;
+      --text-muted: #968a83;
+      --accent: #f9791f;
+      --accent-hover: #fa8d42;
+      --accent-bg: rgba(249, 121, 31, 0.16);
+      --accent-text: #fb9c5b;
+      --on-accent: #111114;
+      --track-progress: #facc15;
+      --ov-progress: #facc15;
+    }
+
+    :root[data-pal="forest"] {
+      --bg-primary: #0c130f;
+      --bg-secondary: #141f1a;
+      --bg-tertiary: #1d2d25;
+      --bg-hover: #21342a;
+      --border: #273f33;
+      --tag-bg: #273f33;
+      --text-primary: #dee2e0;
+      --text-secondary: #9aa7a1;
+      --text-muted: #84948c;
+      --accent: #42d6a0;
+      --accent-hover: #60dcaf;
+      --accent-bg: rgba(66, 214, 160, 0.16);
+      --accent-text: #75e1b9;
+      --on-accent: #111114;
+      --track-progress: #fbbf24;
+      --ov-progress: #fbbf24;
+    }
+
+    :root[data-pal="rose"] {
+      --bg-primary: #130c11;
+      --bg-secondary: #20141d;
+      --bg-tertiary: #2e1c29;
+      --bg-hover: #34202f;
+      --border: #3f2739;
+      --tag-bg: #3f2739;
+      --text-primary: #e3dee1;
+      --text-secondary: #a79aa4;
+      --text-muted: #948490;
+      --accent: #f472b6;
+      --accent-hover: #f793c7;
+      --accent-bg: rgba(244, 114, 182, 0.16);
+      --accent-text: #f8abd3;
+      --on-accent: #111114;
+      --track-progress: #c084fc;
+      --ov-progress: #c084fc;
+    }
+
+    :root[data-pal="graphite"] {
+      --bg-primary: #0e0f11;
+      --bg-secondary: #17191c;
+      --bg-tertiary: #212429;
+      --bg-hover: #26292e;
+      --border: #2e3138;
+      --tag-bg: #2e3138;
+      --text-primary: #e0e0e1;
+      --text-secondary: #9ea0a3;
+      --text-muted: #898b90;
+      --accent: #becbda;
+      --accent-hover: #d5dde7;
+      --accent-bg: rgba(190, 203, 218, 0.16);
+      --accent-text: #e5eaf0;
+      --on-accent: #111114;
+      --track-progress: #94a3b8;
+      --ov-progress: #94a3b8;
+    }
+
+    :root[data-mode="light"] {
+      --bg-primary: #f5f5f5;
+      --bg-secondary: #fefefe;
+      --bg-tertiary: #ececec;
+      --bg-hover: #e3e3e3;
+      --border: #d4d4d4;
+      --tag-bg: #e3e3e3;
+      --text-primary: #1f1f1f;
+      --text-secondary: #595959;
+      --text-muted: #6b6b6b;
+      --accent: #1e23eb;
+      --accent-hover: #1317d3;
+      --accent-bg: rgba(30, 35, 235, 0.13);
+      --accent-text: #1114bb;
+      --on-accent: #ffffff;
+      --track-progress: #ff1f8a;
+      color-scheme: light;
+      --success: #15803d;
+      --warning: #b45309;
+      --danger: #b91c1c;
+      --flow-e-lo: #0284c7;
+      --flow-e-hi: #db2777;
+      --flow-ok: #15803d;
+      --flow-warn: #b45309;
+      --flow-bad: #b91c1c;
+      --flow-target: rgba(0, 0, 0, .5);
+      --flow-chip-ink: black;
+      --flow-chip-c: 50%;
+    }
+
+    :root[data-mode="light"][data-pal="midnight"] {
+      --bg-primary: #f1f3f9;
+      --bg-secondary: #fdfdfe;
+      --bg-tertiary: #e4e8f4;
+      --bg-hover: #d7deef;
+      --border: #c1cce6;
+      --tag-bg: #d7deef;
+      --text-primary: #1b1d22;
+      --text-secondary: #4e5464;
+      --text-muted: #60687b;
+      --accent: #067db1;
+      --accent-hover: #05658f;
+      --accent-bg: rgba(6, 125, 177, 0.13);
+      --accent-text: #045376;
+      --on-accent: #ffffff;
+      --track-progress: #5c28f6;
+    }
+
+    :root[data-mode="light"][data-pal="ember"] {
+      --bg-primary: #f8f4f1;
+      --bg-secondary: #fefefd;
+      --bg-tertiary: #f3eae5;
+      --bg-hover: #ede1d9;
+      --border: #e3d0c4;
+      --tag-bg: #ede1d9;
+      --text-primary: #221e1b;
+      --text-secondary: #635750;
+      --text-muted: #74665d;
+      --accent: #c25205;
+      --accent-hover: #9f4404;
+      --accent-bg: rgba(194, 82, 5, 0.13);
+      --accent-text: #863903;
+      --on-accent: #ffffff;
+      --track-progress: #aa8904;
+    }
+
+    :root[data-mode="light"][data-pal="forest"] {
+      --bg-primary: #f2f8f5;
+      --bg-secondary: #fdfefe;
+      --bg-tertiary: #e6f1ec;
+      --bg-hover: #dbebe3;
+      --border: #c7e0d4;
+      --tag-bg: #dbebe3;
+      --text-primary: #1c211f;
+      --text-secondary: #516159;
+      --text-muted: #5d6f66;
+      --accent: #1d845f;
+      --accent-hover: #16674a;
+      --accent-bg: rgba(29, 132, 95, 0.13);
+      --accent-text: #12523b;
+      --on-accent: #ffffff;
+      --track-progress: #b48303;
+    }
+
+    :root[data-mode="light"][data-pal="rose"] {
+      --bg-primary: #f8f2f6;
+      --bg-secondary: #fefdfe;
+      --bg-tertiary: #f2e6ef;
+      --bg-hover: #ecdae7;
+      --border: #e1c6da;
+      --tag-bg: #ecdae7;
+      --text-primary: #211c20;
+      --text-secondary: #61515d;
+      --text-muted: #756170;
+      --accent: #e3127f;
+      --accent-hover: #c20f6d;
+      --accent-bg: rgba(227, 18, 127, 0.13);
+      --accent-text: #aa0d5f;
+      --on-accent: #ffffff;
+      --track-progress: #8f24fa;
+    }
+
+    :root[data-mode="light"][data-pal="graphite"] {
+      --bg-primary: #f4f4f6;
+      --bg-secondary: #fefefe;
+      --bg-tertiary: #e9ebee;
+      --bg-hover: #dfe2e6;
+      --border: #ced2d9;
+      --tag-bg: #dfe2e6;
+      --text-primary: #1d1e20;
+      --text-secondary: #56585d;
+      --text-muted: #676a6f;
+      --accent: #5a779b;
+      --accent-hover: #4d6685;
+      --accent-bg: rgba(90, 119, 155, 0.13);
+      --accent-text: #435a74;
+      --on-accent: #ffffff;
+      --track-progress: #788ba5;
+    }
+    /* ---------- 3.12 page additions ---------- */
+    img { max-width: 100%; height: auto }
+    section[id] { scroll-margin-top: 100px }
+    section.feature, section.final, section.hero { position: relative }
+    .hrow .qp.live { color: var(--danger) }
+    .hrow .qp.live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--danger) }
+    .shotpair { display: grid; grid-template-columns: 1.15fr 1fr; gap: .8rem; margin-top: .8rem; align-items: start }
+    .col-view .frame + .frame { margin-top: .8rem }
+    @media(max-width:1000px) { .nav-links { gap: .9rem } .nav-links a.txt { font-size: .82rem } }
+    @media(max-width:700px) { .shotpair { grid-template-columns: 1fr } }
+
+    /* ---------- Windows-style title bar on every mock window ---------- */
+    .frame-bar { padding: 0 0 0 .8rem; min-height: 32px; gap: .5rem }
+    .frame-bar .ftitle { margin-left: 0; margin-right: auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+    .wctl { display: flex; align-self: stretch; flex: none; margin-left: .3rem }
+    .wctl > span { width: 40px; display: grid; place-items: center; color: var(--text-secondary) }
+    .wctl svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1 }
+    .wctl > span:hover { background: var(--bg-hover) }
+    .wctl > span.x:hover { background: #c42b1c; color: #fff }
+    @media(max-width:560px) { .wctl > span { width: 30px } }
+
+    /* ---------- shared bits for the drawn mocks ---------- */
+    .xbtn { display: inline-flex; align-items: center; gap: .3rem; padding: 3px 9px; border-radius: 7px; border: 1px solid var(--border);
+      background: var(--bg-tertiary); color: var(--text-primary); white-space: nowrap; font-size: .62rem }
+    .xbtn.pri { background: var(--accent); border-color: var(--accent); color: var(--on-accent) }
+    .xbtn.on { border-color: var(--accent); background: var(--accent-bg); color: var(--accent-text) }
+    .xbtn.dng { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 60%, transparent) }
+    .xseg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; background: var(--bg-tertiary); font-size: .62rem; flex: none }
+    .xseg > span { padding: 3px 9px; white-space: nowrap; color: var(--text-secondary) }
+    .xseg > span + span { border-left: 1px solid var(--border) }
+    .xseg > span.on { background: var(--accent); color: var(--on-accent) }
+    .xmut { color: var(--text-muted) }
+
+    /* ---------- Wall: Horizontal layout + chips (css/wall.css) ---------- */
+    .xwbar { display: flex; align-items: center; gap: .35rem .4rem; flex-wrap: wrap; padding: .45rem .75rem; background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border); font-size: .62rem; color: var(--text-secondary); position: relative; z-index: 2 }
+    .xch { display: inline-flex; align-items: center; gap: .3rem; padding: .2rem .45rem .2rem .55rem; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--bg-tertiary); color: var(--text-primary); white-space: nowrap }
+    .xch .k { color: var(--text-muted) }
+    .xch .vi { font-size: .9em; color: var(--text-muted) }
+    .xch.open { border-color: var(--accent); background: var(--bg-hover) }
+    .xlink { color: var(--accent-text) }
+    .xwstat { color: var(--text-muted) }
+    .xwpush { margin-left: auto }
+    .xanch { position: relative; display: inline-flex }
+    .xmenu { position: absolute; top: calc(100% + 5px); left: 0; z-index: 3; display: flex; flex-direction: column; background: var(--bg-secondary);
+      border: 1px solid var(--border); border-radius: 9px; box-shadow: 0 14px 40px rgba(0, 0, 0, .45); padding: .3rem; min-width: 150px; font-size: .62rem }
+    .xmenu .h { font-size: .52rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); padding: .3rem .45rem .1rem }
+    .xmenu .it { display: flex; align-items: center; gap: .35rem; padding: .25rem .45rem; border-radius: 6px; color: var(--text-primary) }
+    .xmenu .it small { color: var(--text-muted) }
+    .xmenu .it .ck { width: 12px; color: var(--accent-text); display: inline-flex }
+    .xmenu .it.sel { background: var(--accent-bg) }
+    .xmenu .sep { height: 1px; background: var(--border); margin: .25rem .2rem }
+    .xwboard { background: #000; position: relative; z-index: 1 }
+    .xwrow { display: flex }
+    .xwt { position: relative; background-color: #111; overflow: hidden }
+    .xwt .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 16px 8px 7px; background: linear-gradient(transparent, rgba(0, 0, 0, .75));
+      color: #fff; font-size: .6rem; display: flex; justify-content: space-between; gap: .5rem; white-space: nowrap }
+    .xwt .cap span:first-child { overflow: hidden; text-overflow: ellipsis }
+    .xwt.hov { outline: 2px solid var(--accent); outline-offset: -2px }
+    .xwt .pr { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--ov-progress) }
+    .xwt .spk { position: absolute; left: 6px; top: 6px; width: 22px; height: 22px; border-radius: 50%; background: rgba(0, 0, 0, .6); color: #fff;
+      display: grid; place-items: center; font-size: 12px }
+    @media(max-width:640px) { .xwt .cap, .xmenu { display: none } .xwbar .hide-sm, .xcoll .hide-sm, .xfrow .hide-sm { display: none } }
+
+    /* ---------- open collection header + Flow (css/flow.css) ---------- */
+    .xcoll { display: flex; align-items: center; gap: .55rem; flex-wrap: wrap; padding: .55rem .75rem; border-bottom: 1px solid var(--border);
+      background: var(--bg-secondary); font-size: .62rem }
+    .xcoll h6 { font-size: .8rem; font-weight: 700; display: block }
+    .xcoll .meta { color: var(--text-muted) }
+    .xcoll .acts { margin-left: auto; display: flex; gap: .3rem; flex-wrap: wrap }
+    .xflow { padding: .6rem .75rem .7rem; background: var(--bg-primary); font-size: .62rem; color: var(--text-secondary) }
+    .xfrow { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin-bottom: .45rem }
+    .xfrow > b { color: var(--text-primary); font-size: .72rem }
+    .xfrow .push { margin-left: auto }
+    .xfscroll { overflow-x: auto; overscroll-behavior-x: contain }
+    .xfgrid { display: grid; grid-template-columns: 48px repeat(var(--n, 8), minmax(0, 1fr)); column-gap: 4px; row-gap: 5px; align-items: center; margin-top: .3rem }
+    .xfchart { grid-column: 2 / -1; height: 150px; position: relative; border-bottom: 1px solid var(--border) }
+    .xfchart svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible }
+    .xfchart .gl { stroke: var(--border); stroke-width: 1; opacity: .6 }
+    .xfchart .tgt { fill: none; stroke: var(--flow-target); stroke-width: 1.25; stroke-dasharray: 5 5 }
+    .xfchart .en { fill: none; stroke: url(#xEg); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round }
+    .xfchart .ho { fill: none; stroke-width: 3; stroke-linecap: round }
+    .xfchart .ok { stroke: var(--flow-ok) }
+    .xfchart .warn { stroke: var(--flow-warn); stroke-dasharray: 3 3 }
+    .xlab { font-size: .58rem; font-weight: 600; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+    .xlab.xaxis { align-self: start; color: var(--text-muted); font-weight: 500 }
+    .xtg { height: 18px; line-height: 18px; border-radius: 5px; padding: 0 5px; font-size: .56rem; font-weight: 600; overflow: hidden; white-space: nowrap;
+      text-overflow: ellipsis; min-width: 0; background: color-mix(in srgb, var(--c) 24%, transparent);
+      color: color-mix(in srgb, var(--c) var(--flow-chip-c), var(--flow-chip-ink)) }
+    .xtg.e { background: none; border: 1px dashed color-mix(in srgb, var(--text-muted) 45%, transparent); color: var(--text-muted); opacity: .75;
+      font-weight: 400; line-height: 16px }
+    .xfcard { min-width: 0 }
+    .xfth { aspect-ratio: 16/10; border-radius: 6px; position: relative; overflow: hidden }
+    .xfth i { position: absolute; right: 3px; bottom: 3px; font-style: normal; font-size: .5rem; background: rgba(0, 0, 0, .72); color: #fff;
+      padding: 0 3px; border-radius: 3px }
+    .xfnm { font-size: .54rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0 }
+    .xleg { display: flex; gap: .4rem .9rem; flex-wrap: wrap; align-items: center; margin-top: .6rem; padding-top: .5rem; border-top: 1px solid var(--border);
+      font-size: .58rem }
+    .xleg i { display: inline-block; width: 14px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: .3rem }
+    .xleg i.en { border: 0; height: 3px; border-radius: 2px; background: linear-gradient(90deg, var(--flow-e-lo), var(--flow-e-hi)) }
+    .xleg .push { margin-left: auto; color: var(--text-primary) }
+    @media(max-width:640px) { .xfgrid { grid-template-columns: 34px repeat(var(--n, 8), minmax(0, 1fr)); column-gap: 2px; min-width: 560px } .xfnm { display: none }
+      .xtg { padding: 0 2px; font-size: .5rem } .xshape > span { padding: 3px 6px } }
+
+    /* ---------- Stage: library with the Stage bar ---------- */
+    .xstage { display: grid; grid-template-columns: minmax(0, 1fr) 240px; background: var(--bg-primary); font-size: .7rem }
+    .xsmain { padding: .7rem; min-width: 0 }
+    .xsgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .55rem }
+    .xnote { background: var(--accent-bg); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 7px;
+      padding: .45rem .55rem; color: var(--text-primary); font-size: .6rem; line-height: 1.45 }
+    .xplays { display: inline-flex; align-items: center; gap: .3rem; color: var(--accent-text); font-weight: 600; font-size: .66rem }
+    .xsbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: .7rem; padding: .5rem .75rem;
+      background: var(--bg-secondary); border-top: 1px solid var(--border); font-size: .62rem }
+    .xsb-l { display: flex; align-items: center; gap: .5rem; min-width: 0 }
+    .xsb-th { width: 52px; aspect-ratio: 16/10; border-radius: 5px; flex: none }
+    .xsb-nm { font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; max-width: 100% }
+    .xpill { display: inline-flex; align-items: center; gap: .25rem; border-radius: 999px; padding: 0 .45rem; font-size: .54rem; border: 1px solid; margin-top: 2px }
+    .xpill.live { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 60%, transparent); background: color-mix(in srgb, var(--danger) 12%, transparent) }
+    .xpill.live::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--danger) }
+    .xsb-c { display: flex; flex-direction: column; align-items: center; gap: .25rem }
+    .xsb-btns { display: flex; align-items: center; gap: .6rem; color: var(--text-primary); font-size: 13px }
+    .xsb-play { width: 28px; height: 28px; border-radius: 50%; background: var(--text-primary); color: var(--bg-primary); display: grid; place-items: center; font-size: 13px }
+    .xsb-prog { display: flex; align-items: center; gap: .4rem; color: var(--text-muted); font-size: .54rem }
+    .xsb-prog i { width: 150px; height: 3px; border-radius: 2px; background: linear-gradient(90deg, var(--track-progress) 42%, var(--border) 42%) }
+    .xsb-r { display: flex; align-items: center; gap: .5rem; justify-content: flex-end; color: var(--text-secondary); min-width: 0; font-size: .62rem }
+    .xsb-r .vi { font-size: 13px; flex: none }
+    .xsb-r .cnt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-muted); min-width: 0 }
+    .xsb-vol { width: 40px; height: 3px; border-radius: 2px; background: linear-gradient(90deg, var(--text-primary) 70%, var(--border) 70%); flex: none }
+    @media(max-width:1100px) { .xsb-r .vi, .xsb-vol { display: none } }
+    @media(max-width:880px) { .xstage { grid-template-columns: minmax(0, 1fr) } .xstage .mprev { display: none } .xsgrid { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+      .xsbar { grid-template-columns: minmax(0, 1fr) auto } .xsb-r { display: none } }
+    @media(max-width:560px) { .xsb-prog i { width: 64px } }
+
+    /* the Stage window and the set log */
+    .xsw { position: relative; aspect-ratio: 16/9; overflow: hidden; background: #000 }
+    .xswpic { position: absolute; inset: -6%; filter: blur(2px) saturate(1.1) }
+    .xsw .cd { position: absolute; top: 6%; right: 4%; color: #fff; font-weight: 700; font-size: clamp(.72rem, 1.6vw, 1rem); text-shadow: 0 1px 4px rgba(0, 0, 0, .85) }
+    .xsw .nm { position: absolute; left: 4%; bottom: 9%; color: #fff; font-weight: 600; font-size: .62rem; text-shadow: 0 1px 4px rgba(0, 0, 0, .85) }
+    .xsw .pr { position: absolute; left: 0; bottom: 0; height: 3px; width: 42%; background: var(--ov-progress) }
+    .xlog { background: var(--bg-secondary); font-size: .6rem; color: var(--text-primary) }
+    .xlog .hd { display: flex; align-items: baseline; gap: .45rem; padding: .6rem .65rem .45rem; min-width: 0 }
+    .xlog .hd b { font-size: .74rem }
+    .xlog .hd span { color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0 }
+    .xlog .hd .x { margin-left: auto; flex: none }
+    .xlog .tools { display: flex; gap: .3rem; padding: 0 .65rem .5rem; min-width: 0 }
+    .xlog .srch { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 6px; padding: 3px 7px; color: var(--text-muted);
+      background: var(--bg-primary); white-space: nowrap; overflow: hidden }
+    .xlog .rows > div { display: grid; grid-template-columns: 46px 44px minmax(0, 1fr) auto; gap: .4rem; padding: .33rem .65rem;
+      border-top: 1px solid var(--border); align-items: center; position: relative }
+    .xlog .t { font-weight: 600; white-space: nowrap }
+    .xlog .o { color: var(--text-muted) }
+    .xlog .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+    .xlog .d { color: var(--text-muted); white-space: nowrap }
+    .xlog .now .d { color: var(--accent-text) }
+    .xlog .skip .t, .xlog .skip .n { color: var(--text-muted); font-weight: 400 }
+    .xlog .tip { position: absolute; left: 3.4rem; top: -1.15rem; background: var(--text-primary); color: var(--bg-primary); font-size: .54rem;
+      padding: 1px 6px; border-radius: 4px; white-space: nowrap; z-index: 2 }
+    .xlog .ft { display: flex; align-items: center; gap: .4rem; padding: .45rem .65rem; border-top: 1px solid var(--border); color: var(--text-muted) }
+    @media(max-width:420px) { .xlog .o { display: none } .xlog .rows > div { grid-template-columns: 46px minmax(0, 1fr) auto } }
+
+    /* ---------- Share privately dialog (css/share.css) ---------- */
+    .xdback { background: color-mix(in srgb, var(--bg-primary) 75%, #000); padding: 1rem; display: grid; place-items: center }
+    .xdlg { width: 100%; max-width: 440px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: .85rem .95rem;
+      font-size: .64rem; color: var(--text-primary); box-shadow: 0 14px 40px rgba(0, 0, 0, .35) }
+    .xdlg .stp { font-size: .54rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted) }
+    .xdlg h6 { font-size: .86rem; margin: .15rem 0 }
+    .xdlg .xsub { color: var(--text-secondary); margin-bottom: .55rem }
+    .xbox { border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary); padding: .4rem .6rem }
+    .xfile { display: flex; align-items: center; gap: .35rem; padding: .12rem 0; min-width: 0 }
+    .xfile > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0 }
+    .xfile .sz { margin-left: auto; color: var(--text-muted); white-space: nowrap }
+    .xfile.tot { border-top: 1px solid var(--border); margin-top: .25rem; padding-top: .35rem; font-weight: 600 }
+    .xpd { font-size: .52rem; padding: 0 .4rem; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--warning) 60%, transparent);
+      color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent); white-space: nowrap; flex: none }
+    .xamber { margin-top: .55rem; border: 1px solid var(--warning); border-radius: 8px; background: color-mix(in srgb, var(--warning) 10%, transparent); padding: .5rem .6rem }
+    .xamber .hd { display: flex; align-items: center; gap: .35rem; font-weight: 700; color: var(--warning) }
+    .xamber .hd .rm { margin-left: auto; font-weight: 400; color: var(--text-primary); display: inline-flex; gap: .35rem; align-items: center }
+    .xamber p { color: var(--warning); font-size: .6rem }
+    .xchips { display: flex; gap: .25rem; flex-wrap: wrap; margin: .35rem 0 }
+    .xchips span { font-size: .54rem; padding: 0 .4rem; border-radius: 5px; background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--text-primary) }
+    .xtog { width: 26px; height: 14px; border-radius: 999px; background: var(--accent); position: relative; display: inline-block; flex: none }
+    .xtog::after { content: ""; position: absolute; right: 2px; top: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--on-accent) }
+    .xtog.off { background: var(--bg-hover); border: 1px solid var(--border) }
+    .xtog.off::after { right: auto; left: 1px; top: 1px; background: var(--text-muted) }
+    .xlist { margin: .2rem 0; padding-left: 1rem; color: var(--text-secondary) }
+    .xlist li { margin: .1rem 0 }
+    .xlbl { font-weight: 600; margin: .55rem 0 .25rem }
+    .xact { display: flex; gap: .4rem; justify-content: flex-end; margin-top: .75rem }
+    .xact .l { margin-right: auto }
+    .xfield { display: flex; gap: .35rem; align-items: stretch; min-width: 0 }
+    .xfield .in { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-primary); padding: .35rem .5rem;
+      font-family: ui-monospace, Consolas, monospace; font-size: .58rem; white-space: pre; overflow: hidden; text-overflow: ellipsis }
+    .xnotes { margin-top: .6rem; border: 1px solid var(--border); border-radius: 8px; padding: .45rem .6rem; color: var(--text-secondary); line-height: 1.5 }
+    @media(max-width:480px) { .xpd { display: none } .xfield { flex-wrap: wrap } }
+
+    /* ---------- Settings cards: Themes picker, AI scan row ---------- */
+    .xsp { padding: .8rem; background: var(--bg-primary); font-size: .66rem }
+    .xscard { border: 1px solid var(--border); border-radius: 10px; background: var(--bg-secondary); padding: .7rem .8rem }
+    .xscard + .xscard { margin-top: .6rem }
+    .xscard.xhl { border-color: var(--accent) }
+    .xcap { font-size: .54rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted); margin: .15rem 0 .35rem }
+    .xst { font-weight: 600; color: var(--text-primary); font-size: .72rem }
+    .xsd { color: var(--text-muted); font-size: .6rem; line-height: 1.45; margin-bottom: .55rem }
+    .xrow { display: flex; align-items: center; gap: .8rem; justify-content: space-between }
+    .xrow .xsd { margin-bottom: 0 }
+    .xrow + .xrow { border-top: 1px solid var(--border); padding-top: .5rem; margin-top: .5rem }
+    .xpillseg { border-radius: 999px; padding: 2px; gap: 2px }
+    .xpillseg > span { border-radius: 999px; border: 0 !important }
+    .xpick { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .35rem }
+    button.xsw-c { display: flex; align-items: center; gap: .45rem; padding: .42rem .5rem; border: 1px solid var(--border); border-radius: 8px;
+      background: var(--bg-primary); color: var(--text-primary); font: inherit; font-size: .66rem; cursor: pointer; text-align: left; min-width: 0 }
+    button.xsw-c:hover { border-color: var(--accent) }
+    button.xsw-c[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-bg); box-shadow: 0 0 0 1px var(--accent) }
+    .xdots { display: inline-flex; flex: none }
+    .xdots i { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--bg-secondary); margin-left: -4px }
+    .xdots i:first-child { margin-left: 0 }
+    .xmodes { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 2px; background: var(--bg-tertiary); margin-bottom: .6rem }
+    .xmodes button { font: inherit; font-size: .64rem; border: 0; background: none; color: var(--text-secondary); padding: 3px 11px; border-radius: 999px; cursor: pointer }
+    .xmodes button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent) }
+    .xcustom { margin-top: .4rem; display: flex; align-items: center; gap: .45rem; padding: .42rem .5rem; border: 1px dashed var(--border); border-radius: 8px;
+      color: var(--text-secondary); font-size: .66rem }
+    .xtry { margin-top: .7rem; font-size: .95rem; color: var(--accent-text); font-weight: 600; text-align: center }
+    @media(max-width:560px) { .xpick { grid-template-columns: repeat(2, minmax(0, 1fr)) } .xrow { flex-wrap: wrap } }
+
+    .xmore { display: contents }
+    @media(max-width:880px) { .xmore { display: none } }
+    :root[data-mode="light"] .frame { box-shadow: 0 14px 40px -24px rgba(0, 0, 0, .35) }
+    :root[data-mode="light"] .frame.big { box-shadow: 0 30px 70px -36px rgba(0, 0, 0, .4) }
+
+    /* ---------- "And more": topic tabs ---------- */
+    #new [hidden] { display: none !important }
+    .mchips { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: 1.8rem }
+    .mchips button { font: inherit; font-size: .85rem; font-weight: 600; color: var(--text-secondary); background: var(--bg-secondary);
+      border: 1px solid var(--border); border-radius: 999px; padding: .4rem .95rem; cursor: pointer }
+    .mchips button:hover { color: var(--text-primary); border-color: var(--text-muted) }
+    .mchips button[aria-selected="true"] { color: var(--on-accent); background: var(--accent); border-color: var(--accent) }
+    .mchips button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+    .mpanel { margin-top: 1.1rem }
+    .mrel { margin-top: 1.1rem; font-size: .85rem }
+    .mrel a { color: var(--accent-text); text-decoration: none; display: inline-flex; align-items: center; gap: .3rem }
+    .mrel a:hover { text-decoration: underline }
+    .mrel .vi { width: 12px; height: 12px; transform: rotate(-90deg) }
+
   </style>
 </head>
 
@@ -4181,7 +4668,9 @@
       <nav class="nav-links">
         <a class="txt" href="#features">Features</a>
         <a class="txt" href="#wall">Wall</a>
-        <a class="txt" href="#new">What's new</a>
+        <a class="txt" href="#stage">Stage</a>
+        <a class="txt" href="#share">Share</a>
+        <a class="txt" href="#new">And more</a>
         <a class="txt" href="#privacy">Privacy &amp; Security</a>
         <a class="txt" href="https://github.com/aericocode/Vault/releases">Download Now</a>
       </nav>
@@ -4197,69 +4686,68 @@
           <span class="lockbox" style="width:22px;height:22px"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>
           <span class="dot"></span>
           <span class="label"><b>18+</b></span>
-        </div><a class="newchip" href="#new"><b>New in 3.9</b> The Modern look and Wall mode <span aria-hidden="true">&rarr;</span></a>
-        <h1>Vault In.<br><span class="hl"> Get Deeper Data.</span>
+        </div><a class="newchip" href="#share"><b>New in 3.12</b> Share privately and Themes <span aria-hidden="true">&rarr;</span></a>
+        <h1>Vault In.<br><span class="hl"> Press Play.</span>
         </h1>
-        <p class="sub">Vault is a private, local, AI-enhanced library built for your porn collection - it lives entirely
+        <p class="sub">Vault is a private, local library and player for your porn collection - it lives entirely
           on your machine, so it can't be taken offline, DMCA'd, or deplatformed.</p>
-        <p class="support">Pairs with a local vision model that
-          <span class="hl">watches scenes and tags what's actually happening</span>, so you search by what you're
-          in the mood for - not cryptic filenames. Face search, music matching across every clip, a Wall that plays
-          your whole collection at once, PMV auto-cutting, synced stacking, subtitles for every file, a beat bar, toy
-          sync, and vault-grade encryption - all offline.
+        <p class="support">Browse a full-screen library, play any file, fill a wall with clips, build
+          <span class="hl">playlists that flow from one file into the next</span>, and put them on a clean Stage window for
+          Discord or a stream. Share files in encrypted archives when you choose to. An optional local AI can watch every
+          scene and tag what's happening, find faces and write subtitles - all offline.
         </p>
         <div class="cta-row">
           <a href="#features" class="btn btn-primary">See how it works</a>
           <a href="https://github.com/aericocode/Vault/releases" class="btn btn-ghost">Download Now</a>
         </div>
         <div class="fineprint">
-          <span><svg viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2.2" stroke-linecap="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg> Nothing ever leaves your device</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2.2" stroke-linecap="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg> Nothing leaves your device unless you share it</span>
           <span><svg viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> One portable app - no install</span>
         </div>
       </div>
 
       <!-- status panel, Modern look -->
-      <div class="frame" role="img" aria-label="Vault running locally: files scanned, faces found, folders watched, everything encrypted on-device.">
+      <div class="frame" role="img" aria-label="Vault running locally: the library, a playlist playing on Stage, folders watched, the AI scan paused while you watch, everything encrypted on-device.">
         <div class="frame-bar">
-          <span class="tl"><i></i><i></i><i></i></span><span class="ftitle"><span class="lockbox" style="width:16px;height:16px"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>
-          Vault - Local Engine</span><span style="margin-left:auto;font-size:.7rem;color:var(--success);display:flex;align-items:center;gap:.35rem"><span class="dot"></span>Ready</span>
+          <span class="ftitle"><span class="lockbox" style="width:16px;height:16px"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>
+          Vault - Local Engine</span><span style="margin-right:.2rem;font-size:.7rem;color:var(--success);display:flex;align-items:center;gap:.35rem"><span class="dot"></span>Ready</span><span class="wctl" aria-hidden="true"><span><svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg></span><span><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></span><span class="x"><svg viewBox="0 0 10 10"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></span></span>
         </div>
         <div class="frame-body" style="display:flex;flex-direction:column;gap:.45rem;background:var(--bg-secondary)">
-          <div class="hrow"><svg class="vi"><use href="#i-spark"/></svg> Vision AI scan <span class="qp"><svg class="vi"><use href="#i-check"/></svg> 8,214</span></div>
-          <div class="hrow"><svg class="vi"><use href="#i-face-scan"/></svg> Face search <span class="qp" style="color:var(--text-secondary)">312 people</span></div>
-          <div class="hrow"><svg class="vi"><use href="#i-audio"/></svg> Music fingerprinting <span class="track" style="--v:66%"></span></div>
-          <div class="hrow"><svg class="vi"><use href="#i-cc"/></svg> Subtitles - transcribe &amp; translate <span class="qp">Ready</span></div>
-          <div class="hrow"><svg class="vi"><use href="#i-eye"/></svg> Watching 3 folders <span class="qp" style="color:var(--accent-hover)">2 new</span></div>
-          <div class="hrow dim"><svg class="vi"><use href="#i-lock"/></svg> Vault encrypted · <b style="color:var(--text-primary);font-weight:600">ChaCha20 / AES-256</b></div>
+          <div class="hrow"><svg class="vi"><use href="#i-library"/></svg> Library <span class="qp" style="color:var(--text-secondary)">8,214 files</span></div>
+          <div class="hrow"><svg class="vi"><use href="#i-play-fill"/></svg> Now playing: Friday set <span class="qp" style="color:var(--accent-text)">14 of 32</span></div>
+          <div class="hrow"><svg class="vi"><use href="#i-pip"/></svg> Stage window <span class="qp live">Live</span></div>
+          <div class="hrow"><svg class="vi"><use href="#i-eye"/></svg> Watching 3 folders <span class="qp" style="color:var(--accent-text)">2 new</span></div>
+          <div class="hrow"><svg class="vi"><use href="#i-spark"/></svg> AI scan <span class="qp" style="color:var(--text-secondary)">Auto - paused while you watch</span></div>
+          <div class="hrow dim"><svg class="vi"><use href="#i-lock"/></svg> Vault encrypted · <b style="color:var(--text-primary);font-weight:600">ChaCha20-Poly1305</b></div>
         </div>
       </div>
     </div>
   </section>
 
   <!-- ================= 1. LIBRARY (Modern) ================= -->
-  <!-- Mockup = the Modern library: one-line header, filter rail, full-width
+  <!-- Drawn after the library: one-line header, filter rail, full-width
      cards with the size slider, docked preview pane (css/layout-modern.css,
      css/filter-rail.css, css/dock.css). -->
   <section class="feature" id="features">
     <div class="container">
       <div class="wide-head">
         <div>
-          <span class="eyebrow"><span class="ln"></span>Local AI · Deep search</span>
-          <h2>It doesn't just list your files. It understands them.</h2>
-          <p class="lead">A small local vision model watches every video and logs what's actually in it - the scene,
-            the mood, the camera work, the action. Then you search by <strong>meaning</strong>, not filenames.</p>
+          <span class="eyebrow"><span class="ln"></span>Library · Search</span>
+          <h2>Every file, one screen. Find it in seconds.</h2>
+          <p class="lead">The library fills the whole screen. Filters sit in a rail on the left, a preview pane on the
+            right shows a file <strong>without opening it</strong>, and a slider sets how big the cards are.</p>
         </div>
         <ul class="flist">
-          <li><svg class="vi"><use href="#i-check"/></svg> Semantic search - "amateur pov" or "slow build" surfaces the right scenes, no tags required</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Filters live in a rail on the left; the preview pane on the right lets you look, rate and fave before you play</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Full-width cards with a size slider, or flip to a table</li>
           <li><svg class="vi"><use href="#i-check"/></svg> Boolean, fuzzy, metadata-only, and subtitle search across every spoken line</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> Filters live in a rail on the left; a preview pane on the right shows what the AI saw without opening a thing</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> Full-width cards with a size slider, or flip to a table. New files show up right away while the AI catches up</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Turn on the optional AI scan and you can also search by what is in the scene</li>
         </ul>
       </div>
       <div class="frame big" role="img"
-        aria-label="Vault library in the Modern look: filter rail, search for amateur pov with 52 results, cards, and a preview pane with the AI description.">
+        aria-label="Vault library: filter rail, search for amateur pov with 52 results, cards, and a preview pane with the AI description.">
         <div class="frame-bar">
-          <span class="tl"><i></i><i></i><i></i></span><span class="ftitle">Vault · localhost:8765</span>
+          <span class="ftitle">Vault · localhost:8765</span><span class="wctl" aria-hidden="true"><span><svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg></span><span><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></span><span class="x"><svg viewBox="0 0 10 10"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></span></span>
         </div>
         <div class="mh">
           <span class="mlogo"><svg class="vi"><use href="#i-lock"/></svg>Vault</span>
@@ -4364,31 +4852,31 @@
   </section>
 
   <!-- ================= 2. WALL (new in 3.9) ================= -->
-  <!-- Mockup = the Wall tab (player-lib/wall.js, css/wall.css): the slim
+  <!-- Drawn after the Wall tab (player-lib/wall.js, css/wall.css): the slim
      controls line, masonry blocks that keep each file's shape, the gear
      popover open. Scroll mode drifts; hovering holds it (Pause on hover). -->
   <section class="feature" id="wall">
     <div class="container">
       <div class="wide-head">
         <div>
-          <span class="eyebrow"><span class="ln"></span>Wall mode · New in 3.9</span>
+          <span class="eyebrow"><span class="ln"></span>Wall mode · Let it run</span>
           <h2>Your whole collection, playing at once.</h2>
           <p class="lead">The Wall fills the screen with a collage of your own clips and pictures. A few videos play
             at a time, pictures cycle, and every block keeps its file's shape. <strong>Put it on and let it
             run.</strong></p>
         </div>
         <ul class="flist">
-          <li><svg class="vi"><use href="#i-check"/></svg> Grid holds still and swaps blocks on a timer; Scroll drifts the whole board upward, forever</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> Pause on hover holds a block, and the drift, while you look</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> Sound Off, On hover, or Auto - Auto hands the sound to the clip with the most time left</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> Click a playing clip and it carries on in the player from the same moment</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Two layouts: Horizontal fills the screen with full-width rows, Vertical stacks columns. Pick Small, Medium or Large, and Even, Mixed or Wild sizes</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Grid holds still and swaps blocks at the pace you pick; Scroll drifts the whole board, forever</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Sound Off, On hover, Follow a clip, or rotate between clips every 10 to 60 seconds</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Videos on Auto or a number you set; open a clip from the full-screen Wall and it plays full screen, Escape takes you back</li>
           <li><svg class="vi"><use href="#i-check"/></svg> Feed it the current filter, a collection, or a saved search</li>
         </ul>
       </div>
       <div class="frame big" role="img"
-        aria-label="The Wall tab in Scroll mode: a full-screen collage of clips and pictures, one clip heard, and the Wall settings open.">
+        aria-label="The Wall tab in the Horizontal layout: full-width rows of clips and pictures that keep their shapes, one clip heard, the Layout chip open.">
         <div class="frame-bar">
-          <span class="tl"><i></i><i></i><i></i></span><span class="ftitle">Vault · localhost:8765</span>
+          <span class="ftitle">Vault · localhost:8765</span><span class="wctl" aria-hidden="true"><span><svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg></span><span><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></span><span class="x"><svg viewBox="0 0 10 10"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></span></span>
         </div>
         <div class="mh">
           <span class="mlogo"><svg class="vi"><use href="#i-lock"/></svg>Vault</span>
@@ -4401,76 +4889,42 @@
             <span class="mgear"><svg class="vi"><use href="#i-gear"/></svg></span>
           </span>
         </div>
-        <div class="wbar">
-          <span class="wl hide-sm">Source</span><span class="wsel">Saved search: 4★ tonight <svg class="vi"><use href="#i-chevron"/></svg></span>
-          <span class="wseg"><span>Grid</span><span class="on">Scroll</span></span>
-          <span class="wbtn">Pause</span>
-          <span class="wbtn hide-sm">Shuffle</span>
-          <span class="wsl hide-sm"><span class="wl">Pictures</span><i style="--v:55%"></i></span>
-          <span class="wsl hide-sm"><span class="wl">Clips</span><i style="--v:35%"></i></span>
-          <span class="wsl hide-sm"><span class="wl">Speed</span><i style="--v:25%"></i></span>
-          <span class="wstat">4 playing</span>
-          <span class="wbtn on"><svg class="vi"><use href="#i-gear"/></svg></span>
-          <span class="wbtn hide-sm">Full screen</span>
+        <div class="xwbar">
+          <span class="xch"><span class="k">Source</span> Saved search: 4★ tonight <svg class="vi"><use href="#i-chevron"/></svg></span>
+          <span class="xch hide-sm"><span class="k">Order</span> Shuffle <svg class="vi"><use href="#i-chevron"/></svg></span>
+          <span class="xlink hide-sm">Shuffle again</span>
+          <span class="xseg"><span class="on">Grid</span><span>Scroll</span></span>
+          <span class="xanch"><span class="xch open"><span class="k">Layout</span> Horizontal <svg class="vi"><use href="#i-chevron"/></svg></span>
+            <span class="xmenu" role="presentation">
+              <span class="it sel"><span class="ck"><svg class="vi"><use href="#i-check"/></svg></span>Horizontal <small>rows</small></span>
+              <span class="it"><span class="ck"></span>Vertical <small>columns</small></span>
+              <span class="sep"></span>
+              <span class="h">Size</span>
+              <span class="it"><span class="ck"></span>Small</span><span class="it sel"><span class="ck"><svg class="vi"><use href="#i-check"/></svg></span>Medium</span><span class="it"><span class="ck"></span>Large</span>
+              <span class="sep"></span>
+              <span class="h">Variety</span>
+              <span class="it"><span class="ck"></span>Even</span><span class="it sel"><span class="ck"><svg class="vi"><use href="#i-check"/></svg></span>Mixed</span><span class="it"><span class="ck"></span>Wild</span>
+            </span></span>
+          <span class="xch hide-sm"><span class="k">Pace</span> Medium <svg class="vi"><use href="#i-chevron"/></svg></span>
+          <span class="xch hide-sm"><span class="k">Sound</span> Every 20 s <svg class="vi"><use href="#i-chevron"/></svg></span>
+          <span class="xch hide-sm"><span class="k">Videos</span> Auto (4) <svg class="vi"><use href="#i-chevron"/></svg></span>
+          <span class="xbtn">Pause</span>
+          <span class="xwstat">4 playing</span>
+          <span class="xbtn xwpush hide-sm">More</span>
+          <span class="xbtn hide-sm">Full screen</span>
         </div>
-        <div class="wboard">
-          <div class="wcol">
-            <div class="wb clip g1" style="height:196px"><span class="wcap">bedroom_pov_4k.mp4</span></div>
-            <div class="wb still g7" style="height:116px"><span class="wcap">poolside_04.jpg</span></div>
-            <div class="wb clip g3" style="height:236px"><span class="wcap">amateur_couple_hotel.mp4</span></div>
-            <div class="wb clip g1" style="height:196px"><span class="wcap">bedroom_pov_4k.mp4</span></div>
-            <div class="wb still g7" style="height:116px"><span class="wcap">poolside_04.jpg</span></div>
-            <div class="wb clip g3" style="height:236px"><span class="wcap">amateur_couple_hotel.mp4</span></div>
-          </div>
-          <div class="wcol">
-            <div class="wb still g2" style="height:276px"><span class="wcap">studio_portrait_12.jpg</span></div>
-            <div class="wb clip g5" style="height:156px"><span class="wspk"><svg class="vi"><use href="#i-volume"/></svg></span><span class="wcap">cam_show_archive.mov</span></div>
-            <div class="wb still g8" style="height:116px"><span class="wcap">cabin_06.png</span></div>
-            <div class="wb still g2" style="height:276px"><span class="wcap">studio_portrait_12.jpg</span></div>
-            <div class="wb clip g5" style="height:156px"><span class="wspk"><svg class="vi"><use href="#i-volume"/></svg></span><span class="wcap">cam_show_archive.mov</span></div>
-            <div class="wb still g8" style="height:116px"><span class="wcap">cabin_06.png</span></div>
-          </div>
-          <div class="wcol">
-            <div class="wb clip g6" style="height:146px"><span class="wcap">pmv_neon_mix.mp4</span></div>
-            <div class="wb still g4" style="height:226px"><span class="wcap">golden_hour_03.jpg</span></div>
-            <div class="wb clip g2" style="height:176px"><span class="wcap">late_night_solo.mp4</span></div>
-            <div class="wb clip g6" style="height:146px"><span class="wcap">pmv_neon_mix.mp4</span></div>
-            <div class="wb still g4" style="height:226px"><span class="wcap">golden_hour_03.jpg</span></div>
-            <div class="wb clip g2" style="height:176px"><span class="wcap">late_night_solo.mp4</span></div>
-          </div>
-          <div class="wcol">
-            <div class="wb still g3" style="height:186px"><span class="wcap">lake_set_09.jpg</span></div>
-            <div class="wb clip g4" style="height:256px"><span class="wcap">onlyfans_rip_2024.webm</span></div>
-            <div class="wb still g5" style="height:106px"><span class="wcap">blue_room.gif</span></div>
-            <div class="wb still g3" style="height:186px"><span class="wcap">lake_set_09.jpg</span></div>
-            <div class="wb clip g4" style="height:256px"><span class="wcap">onlyfans_rip_2024.webm</span></div>
-            <div class="wb still g5" style="height:106px"><span class="wcap">blue_room.gif</span></div>
-          </div>
-          <div class="wcol hide-wall-sm">
-            <div class="wb clip g8" style="height:216px"><span class="wcap">cabin_weekend_cut.mkv</span></div>
-            <div class="wb still g6" style="height:136px"><span class="wcap">sunset_set_02.jpg</span></div>
-            <div class="wb still g1" style="height:196px"><span class="wcap">window_light_07.jpg</span></div>
-            <div class="wb clip g8" style="height:216px"><span class="wcap">cabin_weekend_cut.mkv</span></div>
-            <div class="wb still g6" style="height:136px"><span class="wcap">sunset_set_02.jpg</span></div>
-            <div class="wb still g1" style="height:196px"><span class="wcap">window_light_07.jpg</span></div>
-          </div>
-          <div class="wpop">
-            <div class="wpr"><span class="wl">Videos at once</span><span class="wsl"><i style="--v:45%"></i></span></div>
-            <div class="wpr"><span class="wl">Block size</span><span class="wsl"><i style="--v:50%"></i></span></div>
-            <div class="wpr"><span class="wl">Show</span><span class="wsel">Videos and pictures <svg class="vi"><use href="#i-chevron"/></svg></span></div>
-            <div class="wpr"><span class="wl">Sound</span><span class="wsel">Auto <svg class="vi"><use href="#i-chevron"/></svg></span></div>
-            <div class="wck"><i class="on"><svg class="vi"><use href="#i-check"/></svg></i> Pause on hover</div>
-            <div class="wck"><i></i> Only direct-play files</div>
-            <div class="wck"><i></i> Play clips to the end</div>
-          </div>
+        <div class="xwboard">
+            <div class="xwrow"><div class="xwt g1" style="flex:1.778 1 0%;aspect-ratio:1.778"></div><div class="xwt g7" style="flex:0.563 1 0%;aspect-ratio:0.563"></div><div class="xwt g3" style="flex:1.333 1 0%;aspect-ratio:1.333"><span class="spk"><svg class="vi"><use href="#i-volume"/></svg></span><span class="pr" style="width:64%"></span></div><div class="xwt g6" style="flex:1.778 1 0%;aspect-ratio:1.778"></div><div class="xwt g2" style="flex:1.000 1 0%;aspect-ratio:1.000"></div><div class="xwt g4" style="flex:1.778 1 0%;aspect-ratio:1.778"></div></div>
+            <div class="xwrow"><div class="xwt g5" style="flex:1.778 1 0%;aspect-ratio:1.778"></div><div class="xwt g8" style="flex:0.750 1 0%;aspect-ratio:0.750"></div><div class="xwt g2 hov" style="flex:1.778 1 0%;aspect-ratio:1.778"><span class="cap"><span>amateur_couple_hotel.mp4</span><span>8:41 left</span></span><span class="pr" style="width:31%"></span></div><div class="xwt g7" style="flex:1.778 1 0%;aspect-ratio:1.778"></div><div class="xwt g1" style="flex:0.563 1 0%;aspect-ratio:0.563"></div><div class="xwt g6" style="flex:1.333 1 0%;aspect-ratio:1.333"></div></div>
+            <div class="xwrow"><div class="xwt g4" style="flex:2.350 1 0%;aspect-ratio:2.350"></div><div class="xwt g6" style="flex:1.000 1 0%;aspect-ratio:1.000"></div><div class="xwt g8" style="flex:1.778 1 0%;aspect-ratio:1.778"></div><div class="xwt g3" style="flex:0.563 1 0%;aspect-ratio:0.563"></div><div class="xwt g5" style="flex:1.778 1 0%;aspect-ratio:1.778"></div><div class="xwt g1" style="flex:1.333 1 0%;aspect-ratio:1.333"></div></div>
         </div>
       </div>
-      <p class="mock-note">Hover the wall above: it holds still, the way Pause on hover does.</p>
+      <p class="mock-note">The Wall in Horizontal rows, Medium size, Mixed variety, Grid mode, with the Layout chip open.</p>
     </div>
   </section>
 
   <!-- ================= 3. THE NEW PLAYER ================= -->
-  <!-- Mockup = the Modern player (player-lib/player/player-modern.js,
+  <!-- Drawn after the player (player-lib/player/player-modern.js,
      css/player/player-modern.css): top bar, glass beat bar lane, bottom dock
      with the play group centred, song-segment timeline with the heat ridge
      and scrub preview showing the song name. -->
@@ -4478,7 +4932,7 @@
     <div class="container">
       <div class="wide-head">
         <div>
-          <span class="eyebrow"><span class="ln"></span>New player · v3.9</span>
+          <span class="eyebrow"><span class="ln"></span>The player · Songs and beats</span>
           <h2>A player that knows where the songs are.</h2>
           <p class="lead">The timeline is cut into its songs, so you can see where one track ends and the next one
             starts. Hover it and a heat ridge shows the parts you watch most, with a preview that <strong>names the
@@ -4487,12 +4941,12 @@
         <ul class="flist">
           <li><svg class="vi"><use href="#i-check"/></svg> One bottom dock, play controls dead centre; the rest folds away as the window shrinks</li>
           <li><svg class="vi"><use href="#i-check"/></svg> Song sections in teal, your notes and hot moments pinned right on the bar</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> The beat bar is a glass lane now: beats glide toward a glowing playhead and land on the kick</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> The beat bar is a glass lane: beats glide toward a glowing playhead and land on the kick</li>
           <li><svg class="vi"><use href="#i-check"/></svg> A-B loops in two presses, a speed list, and repeat that cycles Play next, Start over, Repeat file</li>
         </ul>
       </div>
       <div class="frame big" role="img"
-        aria-label="The Modern player: song sections on the timeline, the heat ridge and a scrub preview naming the song, the glass beat bar lane, and the dock with play controls centred.">
+        aria-label="The player: song sections on the timeline, the heat ridge and a scrub preview naming the song, the glass beat bar lane, and the dock with play controls centred.">
         <div class="pl">
           <div class="scene"><div class="shine"></div></div>
           <div class="ptop">
@@ -4552,6 +5006,526 @@
     </div>
   </section>
 
+  <!-- ================= PLAYLISTS + FLOW (new, 3.10/3.11) ================= -->
+  <!-- Drawn after an open collection with the Flow panel (player-lib/flow.js, css/flow.css): Waves with 3 peaks,
+       the energy line (calm blue to intense pink) following the dashed shape, hand-overs graded,
+       the Role lane and a user-made Mood lane under the chart. -->
+  <section class="feature" id="playlists">
+    <div class="container">
+      <div class="wide-head">
+        <div>
+          <span class="eyebrow"><span class="ln"></span>Playlists · Flow</span>
+          <h2>Line it up once. Let it run.</h2>
+          <p class="lead">Every collection is a playlist. Put it in order by hand, or let <strong>Flow</strong> order it so
+            each file leads into the next.</p>
+        </div>
+        <ul class="flist">
+          <li><svg class="vi"><use href="#i-check"/></svg> Drag tiles or table rows into your own Playlist order, and mark a file Skip so playback passes over it</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Flow measures loudness, tempo and energy on your PC, then follows the shape you pick: Smooth only, Build up, Waves, Peak or Steady</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Every hand-over is graded smooth, noticeable or a jump. Drag files right on the chart, and save the orders you like</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Lanes of stream tags sit under the chart: Role comes with tags like Opener, Centerpiece and Closer, and you can add your own, like a Mood lane, each tag with its color and key. A tag's Place (first, last, at a peak) tells Flow where it goes</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Up next slips a file in without changing the playlist: pick a file and press U, or Shift+U to play it next</li>
+        </ul>
+      </div>
+      <div class="frame big" role="img" aria-label="A collection called Friday set with Flow open: Waves with 3 peaks picked, the energy line rising and falling along the dashed shape across twelve files, ten smooth hand-overs and one noticeable, a Role lane with Opener, Centerpiece and Closer, and a Mood lane going from Chill to Peak with each wave.">
+        <div class="frame-bar">
+            <span class="ftitle">Vault · localhost:8765</span><span class="wctl" aria-hidden="true"><span><svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg></span><span><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></span><span class="x"><svg viewBox="0 0 10 10"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></span></span>
+          </div>
+        <div class="mh">
+            <span class="mlogo"><svg class="vi"><use href="#i-lock"/></svg>Vault</span>
+            <nav class="mtabs"><span class="mtab"><svg class="vi"><use href="#i-library"/></svg><span class="lbl">Library</span></span><span class="mtab on"><svg class="vi"><use href="#i-folder"/></svg><span class="lbl">Collections</span></span><span class="mtab hide-sm"><svg class="vi"><use href="#i-person"/></svg><span class="lbl">Faces</span></span><span class="mtab hide-sm"><svg class="vi"><use href="#i-editor"/></svg><span class="lbl">Editor</span></span><span class="mtab hide-sm"><svg class="vi"><use href="#i-games"/></svg><span class="lbl">Games</span></span><span class="mtab hide-sm"><svg class="vi"><use href="#i-wall"/></svg><span class="lbl">Wall</span></span></nav>
+            <span class="mright"><span class="mhb hide-sm"><svg class="vi"><use href="#i-plus"/></svg>Add</span><span class="mhb sq ok"><svg class="vi"><use href="#i-refresh"/></svg></span><span class="mgear"><svg class="vi"><use href="#i-gear"/></svg></span></span>
+          </div>
+        <div class="xcoll">
+          <span class="xbtn"><svg class="vi"><use href="#i-chev-left"/></svg> Collections</span>
+          <span><h6>Friday set</h6><span class="meta">12 files · 1:07:48 · Flow order: Waves</span></span>
+          <span class="acts"><span class="xbtn hide-sm">Play all</span><span class="xbtn"><svg class="vi"><use href="#i-pip"/></svg> Play on Stage</span><span class="xbtn hide-sm">Shuffle</span><span class="xbtn on">Flow <svg class="vi"><use href="#i-chevron"/></svg></span><span class="xbtn hide-sm">Export…</span></span>
+        </div>
+        <div class="xflow">
+          <div class="xfrow">
+            <b>Flow</b><span class="xmut">12 of 12 files measured</span>
+            <span class="xseg"><span>Playlist order</span><span class="on">Flow order</span></span>
+            <span class="xbtn hide-sm">Make this the playlist order</span>
+            <span class="push xmut hide-sm">Shape</span>
+            <span class="xseg xshape"><span>Smooth only</span><span>Build up</span><span class="on">Waves</span><span>Peak</span><span>Steady</span></span>
+            <span class="xmut hide-sm">Waves</span><span class="xseg hide-sm"><span>1</span><span>2</span><span class="on">3</span><span>4</span><span>5</span><span>6</span></span>
+            <span class="xseg hide-sm xfit"><span class="on">Fit</span><span>Zoom</span></span>
+          </div>
+          <div class="xfrow">
+            <span class="xmut">Lanes</span>
+            <span class="xseg"><span class="on">Role</span><span class="on">Mood</span><span>Tempo</span></span>
+            <span class="push xmut hide-sm">Saved</span>
+            <span class="xbtn hide-sm"><b style="font-size:inherit">Friday waves</b>&nbsp;<span class="xmut">Waves 3</span></span>
+            <span class="xbtn hide-sm"><svg class="vi"><use href="#i-plus"/></svg> Save this order</span>
+          </div>
+          <div class="xfscroll"><div class="xfgrid" style="--n:12">
+            <span class="xlab xaxis">Energy</span>
+            <div class="xfchart"><svg viewBox="0 0 800 160" preserveAspectRatio="none" aria-hidden="true">
+              <defs><linearGradient id="xEg" gradientUnits="userSpaceOnUse" x1="0" x2="0" y1="152.0" y2="12.0"><stop offset="0" style="stop-color:var(--flow-e-lo)"/><stop offset="1" style="stop-color:var(--flow-e-hi)"/></linearGradient></defs>
+              <path class="gl" vector-effect="non-scaling-stroke" d="M0,117.0H800"/><path class="gl" vector-effect="non-scaling-stroke" d="M0,82.0H800"/><path class="gl" vector-effect="non-scaling-stroke" d="M0,47.0H800"/>
+              <path class="tgt" vector-effect="non-scaling-stroke" d="M33.3,80.6C55.6,62.6 77.8,26.6 100.0,26.6C122.2,26.6 144.4,47.9 166.7,65.2C188.9,82.5 211.1,130.3 233.3,130.3C255.6,130.3 277.8,125.3 300.0,110.1C322.2,94.9 344.4,39.3 366.7,39.3C388.9,39.3 411.1,39.3 433.3,39.3C455.6,39.3 477.8,94.9 500.0,110.1C522.2,125.3 544.4,130.3 566.7,130.3C588.9,130.3 611.1,82.5 633.3,65.2C655.6,47.9 677.8,26.6 700.0,26.6C722.2,26.6 744.4,62.6 766.7,80.6"/>
+              <path class="en" vector-effect="non-scaling-stroke" d="M6.0,83.4L9.4,83.7L12.8,83.5L16.3,83.0L19.7,82.7L23.1,82.6L26.5,82.6L29.9,82.1L33.3,80.9L36.8,78.8L40.2,75.9L43.6,72.7L47.0,69.4L50.4,66.4L53.8,63.5L57.3,60.4L60.7,56.8M72.7,51.8L76.1,46.7L79.5,42.0L82.9,38.3L86.3,35.9L89.8,34.4L93.2,33.0L96.6,31.3L100.0,29.4L103.4,28.0L106.8,28.0L110.3,29.6L113.7,32.1L117.1,34.9L120.5,37.7L123.9,40.6L127.3,44.2M139.3,47.5L142.8,48.4L146.2,49.3L149.6,50.5L153.0,52.3L156.4,54.8L159.8,57.9L163.3,61.1L166.7,64.1L170.1,66.7L173.5,69.0L176.9,71.5L180.3,74.5L183.8,78.3L187.2,82.6L190.6,87.3L194.0,92.0M206.0,98.6L209.4,104.1L212.8,108.8L216.3,113.4L219.7,118.0L223.1,122.4L226.5,125.8L229.9,127.7L233.3,128.2L236.8,128.1L240.2,128.2L243.6,128.7L247.0,129.1L250.4,128.5L253.8,126.7L257.3,123.9L260.7,120.7M272.7,119.0L276.1,119.2L279.5,118.8L282.9,118.1L286.3,117.4L289.8,116.9L293.2,116.2L296.6,115.1L300.0,113.2L303.4,110.3L306.8,106.5L310.3,102.2L313.7,97.9L317.1,93.7L320.5,89.5L323.9,85.1L327.3,80.0M339.3,73.0L342.8,67.2L346.2,61.6L349.6,57.0L353.0,53.5L356.4,50.7L359.8,48.1L363.3,44.9L366.7,41.4L370.1,38.4L373.5,36.7L376.9,36.3L380.3,36.9L383.8,37.6L387.2,38.1L390.6,38.7L394.0,39.9M406.0,39.5L409.4,37.3L412.8,35.4L416.3,34.2L419.7,33.8L423.1,34.4L426.5,35.8L429.9,37.7L433.3,39.6L436.8,41.4L440.2,43.3L443.6,45.5L447.0,48.6L450.4,52.7L453.8,57.7L457.3,63.3L460.7,69.2M472.7,76.1L476.1,80.4L479.5,84.4L482.9,88.6L486.3,93.2L489.8,98.0L493.2,102.2L496.6,105.2L500.0,107.3L503.4,109.2L506.8,111.7L510.3,114.9L513.7,118.4L517.1,121.4L520.5,123.5L523.9,125.0L527.3,126.5M539.3,122.2L542.8,125.9L546.2,128.7L549.6,130.9L553.0,132.9L556.4,134.6L559.8,136.0L563.3,136.6L566.7,136.1L570.1,134.4L573.5,131.4L576.9,127.8L580.3,123.7L583.8,119.5L587.2,115.0L590.6,109.9L594.0,103.9M606.0,97.1L609.4,92.5L612.8,87.8L616.3,83.7L619.7,80.4L623.1,77.7L626.5,74.7L629.9,71.0L633.3,66.6L636.8,62.4L640.2,59.2L643.6,57.2L647.0,55.7L650.4,54.1L653.8,51.9L657.3,49.6L660.7,47.6M672.7,43.4L676.1,38.5L679.5,33.9L682.9,30.2L686.3,27.6L689.8,26.1L693.2,25.6L696.6,25.8L700.0,26.1L703.4,26.6L706.8,27.2L710.3,28.5L713.7,30.7L717.1,34.1L720.5,38.7L723.9,44.0L727.3,49.7M739.3,55.3L742.8,59.4L746.2,63.0L749.6,66.6L753.0,70.6L756.4,74.6L759.8,77.8L763.3,79.8L766.7,80.6L770.1,81.1L773.5,82.1L776.9,83.7L780.3,85.3L783.8,86.4L787.2,86.4L790.6,85.7L794.0,84.8"/>
+              <path class="ho ok" vector-effect="non-scaling-stroke" d="M60.7,56.8L72.7,51.8"/><path class="ho ok" vector-effect="non-scaling-stroke" d="M127.3,44.2L139.3,47.5"/><path class="ho ok" vector-effect="non-scaling-stroke" d="M194.0,92.0L206.0,98.6"/><path class="ho ok" vector-effect="non-scaling-stroke" d="M260.7,120.7L272.7,119.0"/><path class="ho warn" vector-effect="non-scaling-stroke" d="M327.3,80.0L339.3,73.0"/><path class="ho ok" vector-effect="non-scaling-stroke" d="M394.0,39.9L406.0,39.5"/><path class="ho ok" vector-effect="non-scaling-stroke" d="M460.7,69.2L472.7,76.1"/><path class="ho ok" vector-effect="non-scaling-stroke" d="M527.3,126.5L539.3,122.2"/><path class="ho ok" vector-effect="non-scaling-stroke" d="M594.0,103.9L606.0,97.1"/><path class="ho ok" vector-effect="non-scaling-stroke" d="M660.7,47.6L672.7,43.4"/><path class="ho ok" vector-effect="non-scaling-stroke" d="M727.3,49.7L739.3,55.3"/>
+            </svg></div>
+            <span class="xlab">Role</span><span class="xtg" style="--c:#4ade80">Opener</span><span class="xtg e">+ Role</span><span class="xtg e">+ Role</span><span class="xtg e">+ Role</span><span class="xtg e">+ Role</span><span class="xtg e">+ Role</span><span class="xtg e">+ Role</span><span class="xtg e">+ Role</span><span class="xtg e">+ Role</span><span class="xtg e">+ Role</span><span class="xtg" style="--c:#a78bfa">Centerpiece</span><span class="xtg" style="--c:#f472b6">Closer</span>
+            <span class="xlab">Mood</span><span class="xtg" style="--c:#fde047">Warm</span><span class="xtg" style="--c:#f87171">Peak</span><span class="xtg" style="--c:#fb923c">Upbeat</span><span class="xtg" style="--c:#7dd3fc">Chill</span><span class="xtg" style="--c:#fde047">Warm</span><span class="xtg" style="--c:#f87171">Peak</span><span class="xtg" style="--c:#f87171">Peak</span><span class="xtg" style="--c:#fde047">Warm</span><span class="xtg" style="--c:#7dd3fc">Chill</span><span class="xtg" style="--c:#fb923c">Upbeat</span><span class="xtg" style="--c:#f87171">Peak</span><span class="xtg" style="--c:#fde047">Warm</span>
+            <span></span><div class="xfcard"><div class="xfth g8"><i>7:05</i></div></div><div class="xfcard"><div class="xfth g6"><i>3:48</i></div></div><div class="xfcard"><div class="xfth g3"><i>12:38</i></div></div><div class="xfcard"><div class="xfth g5"><i>6:12</i></div></div><div class="xfcard"><div class="xfth g1"><i>4:12</i></div></div><div class="xfcard"><div class="xfth g4"><i>3:20</i></div></div><div class="xfcard"><div class="xfth g7"><i>1:05</i></div></div><div class="xfcard"><div class="xfth g2"><i>5:40</i></div></div><div class="xfcard"><div class="xfth g5"><i>8:15</i></div></div><div class="xfcard"><div class="xfth g2"><i>6:01</i></div></div><div class="xfcard"><div class="xfth g6"><i>4:30</i></div></div><div class="xfcard"><div class="xfth g3"><i>5:02</i></div></div>
+            <span></span><div class="xfnm">1 cabin_weekend_cut</div><div class="xfnm">2 pmv_neon_mix</div><div class="xfnm">3 amateur_couple_hotel</div><div class="xfnm">4 late_night_solo</div><div class="xfnm">5 bedroom_pov_4k</div><div class="xfnm">6 studio_scene_finale</div><div class="xfnm">7 poolside_pov_short</div><div class="xfnm">8 rooftop_sunset_cut</div><div class="xfnm">9 rainy_window_solo</div><div class="xfnm">10 cam_show_archive</div><div class="xfnm">11 club_night_pmv</div><div class="xfnm">12 shower_steam_pov</div>
+          </div></div>
+          <div class="xleg">
+            <span><i class="en"></i>Energy (loudness and tempo)</span>
+            <span><i style="border-color:var(--flow-ok)"></i>Smooth hand-over</span>
+            <span><i style="border-color:var(--flow-warn);border-top-style:dashed"></i>Noticeable</span>
+            <span><i style="border-color:var(--flow-bad)"></i>Jump</span>
+            <span><i style="border-color:var(--flow-target);border-top-style:dashed"></i>Shape you picked</span>
+            <span class="push">Every hand-over is smooth or close</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= STAGE (new, 3.10/3.11/3.12) ================= -->
+  <!-- Drawn after a collection playing on Stage with the Stage bar (player-lib/stage-bar.js), the Stage
+       window with the countdown (stage-countdown.js) and the set log (stage-setlog.js). -->
+  <section class="feature" id="stage">
+    <div class="container">
+      <div class="wide-head">
+        <div>
+          <span class="eyebrow"><span class="ln"></span>Stage · Streaming</span>
+          <h2>A clean window made for Discord and streams.</h2>
+          <p class="lead">Stage plays the playlist in its own window, so viewers see <strong>the video and not your
+            library</strong>. You run it all from the Stage bar at the bottom of Vault.</p>
+        </div>
+        <ul class="flist">
+          <li><svg class="vi"><use href="#i-check"/></svg> Full Stage plays in mpv, with loudness leveling, and plays files your browser can't. No mpv? Basic Stage is a picture-in-picture window with nothing extra to install</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> A countdown shows the stream time left and the end time, with optional warnings and a clock on the picture</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> "Plays in 12:30" in the preview pane tells you how long until a file is up</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> The set log writes down what played and when, so you can answer "what was that 35 minutes ago?" and copy it as a list or as chapters</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Click a file to look at it without interrupting; double-click sends it to Stage</li>
+        </ul>
+      </div>
+      <div class="frame big" role="img" aria-label="A collection playing on Stage: the playing file marked, the preview pane saying when the selected file plays, and the Stage bar with On Stage, the track count, time left and end time.">
+        <div class="frame-bar">
+            <span class="ftitle">Vault · localhost:8765</span><span class="wctl" aria-hidden="true"><span><svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg></span><span><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></span><span class="x"><svg viewBox="0 0 10 10"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></span></span>
+          </div>
+        <div class="mh">
+            <span class="mlogo"><svg class="vi"><use href="#i-lock"/></svg>Vault</span>
+            <nav class="mtabs"><span class="mtab"><svg class="vi"><use href="#i-library"/></svg><span class="lbl">Library</span></span><span class="mtab on"><svg class="vi"><use href="#i-folder"/></svg><span class="lbl">Collections</span></span><span class="mtab hide-sm"><svg class="vi"><use href="#i-person"/></svg><span class="lbl">Faces</span></span><span class="mtab hide-sm"><svg class="vi"><use href="#i-editor"/></svg><span class="lbl">Editor</span></span><span class="mtab hide-sm"><svg class="vi"><use href="#i-games"/></svg><span class="lbl">Games</span></span><span class="mtab hide-sm"><svg class="vi"><use href="#i-wall"/></svg><span class="lbl">Wall</span></span></nav>
+            <span class="mright"><span class="mhb hide-sm"><svg class="vi"><use href="#i-plus"/></svg>Add</span><span class="mhb sq ok"><svg class="vi"><use href="#i-refresh"/></svg></span><span class="mgear"><svg class="vi"><use href="#i-gear"/></svg></span></span>
+          </div>
+        <div class="xcoll">
+          <span class="xbtn"><svg class="vi"><use href="#i-chev-left"/></svg> Collections</span>
+          <span><h6>Friday set</h6><span class="meta">32 files · 2:41:10 · playlist order</span></span>
+          <span class="acts"><span class="xbtn hide-sm">Play all</span><span class="xbtn"><svg class="vi"><use href="#i-pip"/></svg> Play on Stage</span><span class="xbtn hide-sm">Shuffle</span><span class="xbtn hide-sm">Flow <svg class="vi"><use href="#i-chevron"/></svg></span></span>
+        </div>
+        <div class="xstage">
+          <div class="xsmain">
+            <div class="xsgrid">
+              <div class="mcard">
+                <div class="mthumb g3"><span class="dur">12:38</span></div>
+                <div class="mname">amateur_couple_hotel.mp4</div>
+                <div class="mmeta"><span class="mb">video</span><span class="mb n">EN</span></div>
+              </div>
+              <div class="mcard">
+                <div class="mthumb g8"><span class="tg">Playing</span><span class="dur">15:12</span><span class="res" style="width:42%"></span></div>
+                <div class="mname">cabin_weekend_cut.mkv</div>
+                <div class="mmeta"><span class="mb">video</span><span class="mb n">EN</span></div>
+              </div>
+              <div class="mcard">
+                <div class="mthumb g5"><span class="dur">9:54</span></div>
+                <div class="mname">late_night_solo.mp4</div>
+                <div class="mmeta"><span class="mb">video</span><span class="mb n">EN</span></div>
+              </div>
+              <div class="mcard sel">
+                <div class="mthumb g4"><span class="dur">3:20</span></div>
+                <div class="mname">studio_scene_finale.mp4</div>
+                <div class="mmeta"><span class="mb">video</span><span class="mb n">EN</span></div>
+              </div>
+              <div class="xmore"><div class="mcard">
+                <div class="mthumb g1"><span class="dur">4:12</span></div>
+                <div class="mname">bedroom_pov_4k.mp4</div>
+                <div class="mmeta"><span class="mb">video</span><span class="mb n">EN</span></div>
+              </div></div>
+              <div class="xmore"><div class="mcard">
+                <div class="mthumb g6"><span class="dur">3:48</span></div>
+                <div class="mname">pmv_neon_mix.mp4</div>
+                <div class="mmeta"><span class="mb">video</span><span class="mb n">EN</span></div>
+              </div></div>
+              <div class="xmore"><div class="mcard">
+                <div class="mthumb g7"><span class="dur">1:05</span></div>
+                <div class="mname">poolside_pov_short.mp4</div>
+                <div class="mmeta"><span class="mb">video</span><span class="mb n">EN</span></div>
+              </div></div>
+              <div class="xmore"><div class="mcard">
+                <div class="mthumb g2"><span class="dur">6:01</span></div>
+                <div class="mname">cam_show_archive.mov</div>
+                <div class="mmeta"><span class="mb">video</span><span class="mb n">EN</span></div>
+              </div></div>
+            </div>
+          </div>
+          <aside class="mprev">
+            <div class="rail-h">Preview <span><svg class="vi"><use href="#i-close"/></svg></span></div>
+            <div class="xnote">Stage is on: click a file to preview it here, double-click it (or press Enter) to play it on Stage.</div>
+            <div class="pv g4"><span class="pp"><svg class="vi"><use href="#i-play-fill"/></svg></span></div>
+            <h6>studio_scene_finale.mp4</h6>
+            <div class="xplays"><svg class="vi"><use href="#i-clock"/></svg> Plays in 12:30</div>
+            <div class="mrow"><span class="mb2 pri"><svg class="vi"><use href="#i-play-fill"/></svg> Play</span><span class="mb2">Play next</span><span class="mb2"><svg class="vi"><use href="#i-plus"/></svg> Up next</span></div>
+          </aside>
+        </div>
+        <div class="xsbar">
+          <div class="xsb-l"><span class="xsb-th g8"></span><span style="min-width:0"><span class="xsb-nm">cabin_weekend_cut.mkv</span><br><span class="xpill live">On Stage</span></span></div>
+          <div class="xsb-c"><span class="xsb-btns"><svg class="vi"><use href="#i-prev-file"/></svg><span class="xsb-play"><svg class="vi"><use href="#i-pause-bold"/></svg></span><svg class="vi"><use href="#i-next-file"/></svg></span><span class="xsb-prog">6:22 <i></i> 15:12</span></div>
+          <div class="xsb-r"><span class="cnt">Track 14 of 32 · 1:12:30 left · ends 11:40 PM</span><span class="xbtn">+ Tag</span><span class="xbtn">Log</span><svg class="vi"><use href="#i-repeat"/></svg><svg class="vi"><use href="#i-volume"/></svg><span class="xsb-vol"></span><svg class="vi"><use href="#i-pip"/></svg><svg class="vi"><use href="#i-close"/></svg></div>
+        </div>
+      </div>
+      <div class="shotpair">
+        <div class="frame" role="img" aria-label="The Stage window: only the picture, with 20 minutes left in the top corner, the file name and a progress line.">
+          <div class="frame-bar">
+            <span class="ftitle">Vault Stage</span><span class="wctl" aria-hidden="true"><span><svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg></span><span><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></span><span class="x"><svg viewBox="0 0 10 10"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></span></span>
+          </div>
+          <div class="xsw"><div class="xswpic g8"></div><span class="cd">20 minutes left</span><span class="nm">cabin_weekend_cut</span><span class="pr"></span></div>
+        </div>
+        <div class="frame" role="img" aria-label="The set log: what played tonight and when, one file skipped early, and a hover saying how long ago a file played.">
+          <div class="xlog">
+            <div class="hd"><b>Set log</b><span>Tonight · started 9:05 PM · 7 played</span><span class="x"><svg class="vi"><use href="#i-close"/></svg></span></div>
+            <div class="tools"><span class="srch">Search this set</span><span class="xbtn">Copy as chapters</span><span class="xbtn">Copy list</span></div>
+            <div class="rows"><div class="now"><span class="t">9:41 PM</span><span class="o">0:36:10</span><span class="n">cabin_weekend_cut.mkv</span><span class="d">Playing now</span></div><div class=""><span class="t">9:36 PM</span><span class="o">0:31:02</span><span class="n">amateur_couple_hotel.mp4</span><span class="d">5:08</span></div><div class="skip"><span class="t">9:35 PM</span><span class="o">0:30:40</span><span class="n">poolside_pov_short.mp4</span><span class="d">skipped after 0:22</span></div><div class="tipr"><span class="tip">Played 12 min ago</span><span class="t">9:29 PM</span><span class="o">0:24:12</span><span class="n">late_night_solo.mp4</span><span class="d">6:28</span></div><div class=""><span class="t">9:21 PM</span><span class="o">0:16:01</span><span class="n">studio_scene_finale.mp4</span><span class="d">8:11</span></div><div class=""><span class="t">9:13 PM</span><span class="o">0:08:20</span><span class="n">bedroom_pov_4k.mp4</span><span class="d">7:41</span></div><div class=""><span class="t">9:05 PM</span><span class="o">0:00:00</span><span class="n">cam_show_archive.mov</span><span class="d">8:20</span></div></div>
+            <div class="ft">Earlier sets <span class="xbtn">Tonight 9:05 PM · now playing <svg class="vi"><use href="#i-chevron"/></svg></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= SHARE PRIVATELY (new, 3.12) ================= -->
+  <!-- Drawn after Share privately step 1 with personal details found, and step 3 (player-lib/share-ui.js). -->
+  <section class="feature" id="share">
+    <div class="container split">
+      <div class="col-copy">
+        <span class="eyebrow"><span class="ln"></span>Share privately</span>
+        <h2>Send files to a friend. Nobody else can open them.</h2>
+        <p class="lead">Pick files or a whole collection. Vault packs them into an <strong>encrypted 7z archive</strong>
+          on your PC, uploads it to gofile once you confirm, and gives you a ready message with the link and the
+          password.</p>
+        <ul class="flist">
+          <li><svg class="vi"><use href="#i-check"/></svg> Before packing, Vault checks for personal details (location, device, names, folder paths) and removes them from the packed copies. Your originals are never changed</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> AES-256 with the file names hidden, tested before upload; the password never leaves your PC</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Copy as block puts the link and the password together, in a format you can write yourself</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> My shares lists what you have uploaded, with copy, open, delete and an optional delete timer</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Off until you turn it on, and nothing is uploaded unless you start a share and confirm it</li>
+        </ul>
+      </div>
+      <div class="col-view">
+        <div class="frame" role="img" aria-label="Share privately, step 1 of 3: six files, three with personal details found, and the switch that removes them from the packed copies.">
+          <div class="frame-bar">
+            <span class="ftitle">Vault · localhost:8765</span><span class="wctl" aria-hidden="true"><span><svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg></span><span><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></span><span class="x"><svg viewBox="0 0 10 10"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></span></span>
+          </div>
+          <div class="xdback"><div class="xdlg">
+            <div class="stp">Step 1 of 3</div><h6>Share privately</h6>
+            <div class="xsub">Review what will be packed. Nothing is uploaded yet.</div>
+            <div class="xbox"><div class="xfile"><span>golden_hour_03.jpg</span><span class="xpd">Personal details</span><span class="sz">2.4 MB</span></div><div class="xfile"><span>poolside_04.jpg</span><span class="sz">1.9 MB</span></div><div class="xfile"><span>late_night_solo.mp4</span><span class="xpd">Personal details</span><span class="sz">412 MB</span></div><div class="xfile"><span>studio_portrait_12.jpg</span><span class="sz">3.1 MB</span></div><div class="xfile"><span>cabin_weekend_cut.mkv</span><span class="xpd">Personal details</span><span class="sz">1.2 GB</span></div><div class="xfile"><span>blue_room.gif</span><span class="sz">6.8 MB</span></div>
+              <div class="xfile tot"><span>6 files</span><span class="sz" style="color:inherit">1.6 GB</span></div></div>
+            <div class="xamber">
+              <div class="hd"><svg class="vi"><use href="#i-info"/></svg> Personal details (3) <svg class="vi"><use href="#i-chevron"/></svg><span class="rm">Remove <span class="xtog"></span></span></div>
+              <div class="xchips"><span>Location 2</span><span>Device 3</span><span>Name 2</span><span>Comment 2</span></div>
+              <p>Removed from the packed copies. Your originals are not changed.</p>
+            </div>
+            <div class="xlbl">What will leave this computer</div>
+            <ul class="xlist"><li>One encrypted 7z archive with a random name</li><li>File names are hidden inside the archive</li><li>The password stays here and is never uploaded</li><li>Tags, notes and ratings are not included</li></ul>
+            <div class="xact"><span class="xbtn">Cancel</span><span class="xbtn pri">Pack files</span></div>
+          </div></div>
+        </div>
+        <div class="frame" role="img" aria-label="Share privately, step 3 of 3: the link, the archive password, and both together with Copy as block.">
+          <div class="frame-bar">
+            <span class="ftitle">Vault · localhost:8765</span><span class="wctl" aria-hidden="true"><span><svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg></span><span><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></span><span class="x"><svg viewBox="0 0 10 10"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></span></span>
+          </div>
+          <div class="xdback"><div class="xdlg">
+            <div class="stp">Step 3 of 3</div><h6>Uploaded</h6>
+            <div class="xsub">Send the link and the password separately if you can.</div>
+            <div class="xlbl">Link</div>
+            <div class="xfield"><span class="in">https://gofile.io/d/AbCd12</span><span class="xbtn">Copy link</span></div>
+            <div class="xlbl">Archive password</div>
+            <div class="xfield"><span class="in">••••••••••••••••••••••••</span><span class="xbtn">Show</span><span class="xbtn">Copy password</span></div>
+            <div class="xlbl">Both together</div>
+            <div class="xfield"><span class="in">https://gofile.io/d/AbCd12
+pass: ••••••••••••••••</span><span class="xbtn pri">Copy as block</span></div>
+            <div class="xnotes">gofile deletes this upload in 7 days.<br>The local archive has been deleted. Your original files are untouched.</div>
+            <div class="xact"><span class="xbtn dng l">Delete from gofile now</span><span class="xbtn">Done</span></div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= THEMES (new, 3.12) ================= -->
+  <!-- Drawn after Settings > General > Look (player-lib/settings.js). The buttons really re-theme this page,
+       with the app's own tokens (player-lib/theme-colors.js derive()). -->
+  <section class="feature" id="themes">
+    <div class="container split reverse">
+      <div class="col-copy">
+        <span class="eyebrow"><span class="ln"></span>Themes</span>
+        <h2>Dark, Light, or your own colors.</h2>
+        <p class="lead">Dark or Light, six color sets, or your own colors. Every screen follows the theme, from the
+          player to the Stage bar and the Wall.</p>
+        <ul class="flist">
+          <li><svg class="vi"><use href="#i-check"/></svg> Vault, Midnight, Ember, Forest, Rose and Graphite, or Match system for Dark and Light</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Custom: pick a highlight and a second color, and tint the background to match</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Changes apply at once, and Vault nudges a color that would make text hard to read</li>
+        </ul>
+      </div>
+      <div class="col-view">
+        <div class="frame">
+          <div class="shead">Settings <span class="sup"><svg class="vi"><use href="#i-heart"/></svg> Support Vault</span><span style="color:var(--text-muted);display:inline-flex"><svg class="vi"><use href="#i-close"/></svg></span></div>
+          <div class="xsp"><div class="xscard">
+            <div class="xcap">Look</div>
+            <div class="xst">Theme</div>
+            <div class="xsd">Changes show straight away. The picture and the controls on it stay dark.</div>
+            <div class="xcap">Brightness</div>
+            <div class="xmodes" role="group" aria-label="Brightness"><button type="button" data-set-mode="dark" aria-pressed="true">Dark</button><button type="button" data-set-mode="light" aria-pressed="false">Light</button><button type="button" data-set-mode="system" aria-pressed="false">Match system</button></div>
+            <div class="xcap">Colors</div>
+            <div class="xpick" role="group" aria-label="Colors"><button type="button" class="xsw-c" data-set-pal="vault" aria-pressed="true"><span class="xdots"><i style="background:#1a1a1a"></i><i style="background:#6366f1"></i><i style="background:#ff4fa3"></i></span>Vault</button><button type="button" class="xsw-c" data-set-pal="midnight" aria-pressed="false"><span class="xdots"><i style="background:#16203a"></i><i style="background:#38bdf8"></i><i style="background:#a78bfa"></i></span>Midnight</button><button type="button" class="xsw-c" data-set-pal="ember" aria-pressed="false"><span class="xdots"><i style="background:#2a1f18"></i><i style="background:#f97316"></i><i style="background:#facc15"></i></span>Ember</button><button type="button" class="xsw-c" data-set-pal="forest" aria-pressed="false"><span class="xdots"><i style="background:#18261f"></i><i style="background:#34d399"></i><i style="background:#fbbf24"></i></span>Forest</button><button type="button" class="xsw-c" data-set-pal="rose" aria-pressed="false"><span class="xdots"><i style="background:#2a1a26"></i><i style="background:#f472b6"></i><i style="background:#c084fc"></i></span>Rose</button><button type="button" class="xsw-c" data-set-pal="graphite" aria-pressed="false"><span class="xdots"><i style="background:#1c1e22"></i><i style="background:#cbd5e1"></i><i style="background:#94a3b8"></i></span>Graphite</button></div>
+            <div class="xcustom"><span class="xdots"><i style="background:conic-gradient(#f87171,#fde047,#4ade80,#38bdf8,#a78bfa,#f87171)"></i></span>Custom: pick your own colors <span class="xmut" style="margin-left:auto">in the app</span></div>
+          </div></div>
+        </div>
+        <p class="xtry">Try it - this page changes with you.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= OPTIONAL LOCAL AI (new intro block) ================= -->
+  <!-- Drawn after Settings > General, the AI scan row (player-lib/settings.js aiScanRow). -->
+  <section class="feature" id="ai">
+    <div class="container split">
+      <div class="col-copy">
+        <span class="eyebrow"><span class="ln"></span>Optional · Local AI</span>
+        <h2>Want more? Add a local AI.</h2>
+        <p class="lead">Vault works fully without it. Turn the AI scan on and a small vision model on your own PC
+          watches every file and writes down what's in it - the scene, the mood, the action - so you search by
+          <strong>meaning</strong>, not filenames. Set it Off, On, or Auto, which pauses while you watch.</p>
+        <ul class="flist">
+          <li><svg class="vi"><use href="#i-check"/></svg> Semantic search - "amateur pov" or "slow build" surfaces the right scenes, no tags required</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Off means Vault never scans and never asks; Auto stops the moment something plays and carries on after</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Runs on LM Studio, Ollama or vLLM, on your own GPU. Nothing is sent anywhere</li>
+        </ul>
+      </div>
+      <div class="col-view">
+        <div class="frame" role="img" aria-label="Settings, General: the AI scan row set to Auto, under the Playback rows.">
+          <div class="shead">Settings <span class="sup"><svg class="vi"><use href="#i-heart"/></svg> Support Vault</span><span style="color:var(--text-muted);display:inline-flex"><svg class="vi"><use href="#i-close"/></svg></span></div>
+          <div class="sdlg">
+            <div class="snav">
+              <div class="sfind" style="border-color:var(--border);color:var(--text-muted)"><svg class="vi"><use href="#i-search"/></svg> Search settings</div>
+              <div class="sgrp">You</div>
+              <div class="sitem on"><svg class="vi"><use href="#i-gear"/></svg> General</div>
+              <div class="sitem"><svg class="vi"><use href="#i-lock"/></svg> Privacy and security</div>
+              <div class="sitem"><svg class="vi"><use href="#i-keyboard"/></svg> Keyboard shortcuts</div>
+              <div class="sitem"><svg class="vi"><use href="#i-pip"/></svg> Stage</div>
+              <div class="sgrp">Library</div>
+              <div class="sitem"><svg class="vi"><use href="#i-library"/></svg> Library and files</div>
+              <div class="sitem"><svg class="vi"><use href="#i-person"/></svg> Face search</div>
+              <div class="sitem"><svg class="vi"><use href="#i-upload"/></svg> Private sharing</div>
+              <div class="sgrp">AI</div>
+              <div class="sitem"><svg class="vi"><use href="#i-chip"/></svg> Models and scanning</div>
+              <div class="sitem"><svg class="vi"><use href="#i-plug"/></svg> AI servers</div>
+            </div>
+            <div class="sbody">
+              <div class="xscard">
+                <div class="xcap">Playback</div>
+                <div class="xrow"><div><div class="xst">Continue where I left off</div><div class="xsd">Positions are always saved; this only jumps back to them.</div></div><span class="xtog"></span></div>
+                <div class="xrow"><div><div class="xst">Reopen my last session</div><div class="xsd">When Vault starts, open the last file you played, paused.</div></div><span class="xtog off"></span></div>
+              </div>
+              <div class="xscard xhl">
+                <div class="xcap">AI</div>
+                <div class="xrow"><div><div class="xst">AI scan</div><div class="xsd">Tags and describes your files with a local AI model (LM Studio). Like On, but waits while something is playing.</div></div><span class="xseg xpillseg"><span>Off</span><span>On</span><span class="on">Auto</span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 7. YOUR DATA · THE INFO PANEL ================= -->
+  <!-- Drawn after the Info panel (player-lib/detail-view.js
+     renderDetailPanel, css/player/player-panel-modern.css): quick actions,
+     tabs, the Notes tab, the note box pinned under every tab, and the
+     collections picker. -->
+  <section class="feature" id="sidebar">
+    <div class="container split">
+      <div class="col-copy">
+        <span class="eyebrow"><span class="ln"></span>Your data · The Info panel</span>
+        <h2>AI writes the first draft. <br>You finish it.</h2>
+        <p class="lead">Every file carries a living Info panel, docked beside the player. Fave it, rate it, add it to
+          collections, pile on notes. Everything you add becomes <strong>instantly filterable and searchable</strong>
+          across the library.</p>
+        <ul class="flist">
+          <li><svg class="vi"><use href="#i-check"/></svg> Tabs for Details, Notes, Subtitles, Music, People and File, with quick actions along the top</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> The note box stays pinned under every tab, so a thought never costs you a click</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Type "2:35" and it's a link that seeks; type "0:41.25-1:03.50" and it's a loop, exact to the hundredth</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Saved quick notes become one-click chips; a picker drops the file into any collection</li>
+        </ul>
+      </div>
+      <div class="col-view">
+        <div class="ipwrap" role="img"
+          aria-label="The Info panel on its Notes tab: quick actions, tabs, notes with timestamps and a loop range, the pinned note box, and the collections picker.">
+          <div class="ip">
+            <div class="ipqa">
+              <span class="qb"><svg class="vi"><use href="#i-flag"/></svg></span><span class="qb"><svg class="vi"><use href="#i-trash"/></svg></span><span class="qb p-f2"><svg class="vi"><use href="#i-copy"/></svg></span><span class="qb p-f2"><svg class="vi"><use href="#i-refresh"/></svg></span><span class="qb"><svg class="vi"><use href="#i-spark"/></svg></span><span class="qb on"><svg class="vi"><use href="#i-folder"/></svg></span>
+              <span class="qsp"></span><span class="qb cl"><svg class="vi"><use href="#i-more"/></svg></span><span class="qb cl"><svg class="vi"><use href="#i-close"/></svg></span>
+            </div>
+            <div class="iptabs"><span>Details</span><span class="on">Notes<em>3</em></span><span>Subtitles</span><span>Music<em>2</em></span><span>People<em>1</em></span><span>File</span></div>
+            <div class="ipbody">
+              <div class="ipnote">
+                <div class="ts">Jun 28, 2026, 8:12 PM</div>
+                <div class="tx"><span class="lnk">2:35</span> is unreal, stack this with amateur_couple_hotel</div>
+                <span class="ed"><svg class="vi"><use href="#i-edit"/></svg><svg class="vi"><use href="#i-close"/></svg></span>
+              </div>
+              <div class="ipnote">
+                <div class="ts">Jul 3, 2026, 11:47 PM</div>
+                <div class="tx"><span class="lnk"><svg class="vi"><use href="#i-repeat"/></svg> 0:41.25-1:03.50</span> slow build, the best section</div>
+                <span class="ed"><svg class="vi"><use href="#i-edit"/></svg><svg class="vi"><use href="#i-close"/></svg></span>
+              </div>
+              <div class="ipnote">
+                <div class="ts">Jul 9, 2026, 10:02 PM</div>
+                <div class="tx">Watch again <span class="lnk">5:12</span></div>
+                <span class="ed"><svg class="vi"><use href="#i-edit"/></svg><svg class="vi"><use href="#i-close"/></svg></span>
+              </div>
+              <p class="iphint">Click a time to jump there; a range loops. Times can carry hundredths.</p>
+            </div>
+            <div class="ipbox">
+              <div class="ipadd">
+                <span class="ib"><svg class="vi"><use href="#i-clock"/></svg></span>
+                <span class="ipin"><span class="lnk">3:58</span> outro is perfect for a PMV<span class="caret"></span></span>
+                <span class="ib"><svg class="vi"><use href="#i-star"/></svg></span>
+                <span class="ib pri"><svg class="vi"><use href="#i-plus"/></svg></span>
+              </div>
+              <div class="snip"><span><i style="background:#f38ba8"></i>Watch again</span><span><i style="background:#a855f7"></i>cut for PMV</span><span>keeper</span></div>
+            </div>
+          </div>
+          <div class="cpick">
+            <div class="hd">Add to collection</div>
+            <div class="it on"><span class="bx"><svg class="vi"><use href="#i-check"/></svg></span> Night drives</div>
+            <div class="it on"><span class="bx"><svg class="vi"><use href="#i-check"/></svg></span> Best of 2026</div>
+            <div class="it"><span class="bx"></span> Chill</div>
+            <div class="nw"><svg class="vi"><use href="#i-plus"/></svg> New collection</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 5. FACES + STUDIOS (v3.8) ================= -->
+  <!-- Drawn after the Faces tab (player-lib/faces-tab.js, css/faces-tab.css):
+     People | Studios, search with a photo, person cards, and the
+     "Same person?" question. Faces are abstract silhouettes. -->
+  <section class="feature" id="faces">
+    <div class="container split reverse">
+      <div class="col-copy">
+        <span class="eyebrow"><span class="ln"></span>Face search · Studios</span>
+        <h2>Search by who's in it.</h2>
+        <p class="lead">Vault finds the people in every photo, GIF and video, then sorts them into a Faces tab you
+          can name and play. Click a face and see <strong>every file that person is in</strong>.</p>
+        <ul class="flist">
+          <li><svg class="vi"><use href="#i-check"/></svg> Search with a photo, or pause a video and find who's on screen</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Name people once; "Same person?" asks before it merges anyone</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Two face models: a fast one for the first pass, a sharper one to tell people apart</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Studios group files and people by where they come from</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Off until you turn it on. One download of about 213 MB, then it works offline and uploads nothing</li>
+        </ul>
+      </div>
+      <div class="col-view">
+        <div class="frame" role="img"
+          aria-label="Faces tab: People and Studios switch, search with a photo, person cards with names and file counts, and a Same person question.">
+          <div class="frame-bar">
+            <span class="ftitle">Vault · localhost:8765</span><span class="wctl" aria-hidden="true"><span><svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg></span><span><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></span><span class="x"><svg viewBox="0 0 10 10"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></span></span>
+          </div>
+          <div class="mh">
+            <span class="mlogo"><svg class="vi"><use href="#i-lock"/></svg>Vault</span>
+            <nav class="mtabs">
+              <span class="mtab"><svg class="vi"><use href="#i-library"/></svg><span class="lbl hide-md">Library</span></span><span class="mtab on"><svg class="vi"><use href="#i-person"/></svg><span class="lbl">Faces</span></span><span class="mtab"><svg class="vi"><use href="#i-editor"/></svg><span class="lbl hide-md">Editor</span></span><span class="mtab"><svg class="vi"><use href="#i-wall"/></svg><span class="lbl hide-md">Wall</span></span>
+            </nav>
+            <span class="mright"><span class="mhb sq ok"><svg class="vi"><use href="#i-refresh"/></svg></span><span class="mgear"><svg class="vi"><use href="#i-gear"/></svg></span></span>
+          </div>
+          <div class="fbar">
+            <span class="mseg"><span class="on"><svg class="vi"><use href="#i-person"/></svg> People</span><span><svg class="vi"><use href="#i-building"/></svg> Studios</span></span>
+            <span class="fsearch"><svg class="vi"><use href="#i-search"/></svg> Find a person</span>
+            <span class="mtb on"><svg class="vi"><use href="#i-image"/></svg> Search with a photo</span>
+          </div>
+          <div class="fchips"><span class="rp on">Everyone <em>312</em></span><span class="rp">Favorites</span><span class="rp">Not named yet</span><span class="rp">Sort: Most files</span></div>
+          <div class="fbody">
+            <div class="fgrid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+              <div class="fcard"><div class="fface g2"><span class="star">★</span><svg><use href="#silhouette"/></svg></div><div class="nm">Rae</div><div class="ct">48 files</div></div>
+              <div class="fcard"><div class="fface g5"><svg><use href="#silhouette"/></svg></div><div class="nm">Mila</div><div class="ct">31 files</div></div>
+              <div class="fcard"><div class="fface g4"><svg><use href="#silhouette"/></svg></div><div class="nm">Jade</div><div class="ct">27 files</div></div>
+              <div class="fcard"><div class="fface g3"><svg><use href="#silhouette"/></svg></div><div class="nm un">Not named yet</div><div class="nbtn"><svg class="vi"><use href="#i-edit"/></svg> Add a name</div></div>
+              <div class="fcard"><div class="fface g6"><svg><use href="#silhouette"/></svg></div><div class="nm">Nova</div><div class="ct">12 files</div></div>
+              <div class="fcard"><div class="fface g7"><svg><use href="#silhouette"/></svg></div><div class="nm">Iris</div><div class="ct">9 files</div></div>
+            </div>
+            <div class="fsame">
+              <h6>Same person?</h6>
+              <div class="fpair"><div class="fface g2"><svg><use href="#silhouette"/></svg></div><div class="fface g2" style="filter:hue-rotate(20deg) brightness(.9)"><svg><use href="#silhouette"/></svg></div></div>
+              <div class="fopt"><span class="pri">Yes, same person</span><span>No, different people</span><span>Not sure, skip</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 8. SUBTITLES ================= -->
+  <section class="feature">
+    <div class="container split">
+      <div class="col-copy">
+        <span class="eyebrow"><span class="ln"></span>Subtitles</span>
+        <h2>Every video gets real subtitles. Even the foreign ones.</h2>
+        <p class="lead">One click transcribes the whole file on your own GPU - talking and singing - translates
+          foreign audio to English, and colors each speaker. Then every spoken line becomes
+          <strong>searchable</strong> from the library.</p>
+        <ul class="flist">
+          <li><svg class="vi"><use href="#i-check"/></svg> Off / On / Auto - Auto shows English only when the audio isn't English</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Covers the whole file, start to finish, including the songs</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Per-speaker colors when voices are separated; drag the captions anywhere</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Wrong line? "Fix the lines around here" re-scans just the minute around the playhead</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> Generate on demand or during a scan - all local Whisper, zero cloud</li>
+        </ul>
+      </div>
+      <div class="col-view">
+        <div class="frame" role="img"
+          aria-label="The player with auto-generated subtitles: two speakers in different colors, and the Subtitles menu set to Auto.">
+          <div class="pl">
+            <div class="scene night"></div>
+            <div class="ptop">
+              <span class="pic"><svg class="vi"><use href="#i-chev-left"/></svg></span><span class="t">cam_show_archive.mov</span><span class="sp"></span><span class="pic"><svg class="vi"><use href="#i-panel"/></svg></span><span class="pic"><svg class="vi"><use href="#i-close"/></svg></span>
+            </div>
+            <div class="psub side">
+              <span class="v1">This late at night?</span>
+              <span class="v2">The rain only just stopped.</span>
+            </div>
+            <div class="pmenu subs" style="right:12px;bottom:66px">
+              <div class="h"><svg class="vi"><use href="#i-chev-left"/></svg> Subtitles</div>
+              <div class="it"><span class="ck"></span>Off</div>
+              <div class="it"><span class="ck"></span>On</div>
+              <div class="it sel hl"><span class="ck"><svg class="vi"><use href="#i-check"/></svg></span>Auto (English, only for other languages)</div>
+              <div class="sep"></div>
+              <div class="it"><svg class="vi"><use href="#i-refresh"/></svg> Fix the lines around here</div>
+            </div>
+            <div class="pdock" style="padding-top:40px">
+              <div class="ptl"><div class="psegs"><span style="flex:62"><i style="width:58%"></i></span><span class="song" style="flex:24"></span><span style="flex:14"></span></div></div>
+              <div class="prow">
+                <div class="l"><span class="ptime">3:41 <span>/ 6:01</span></span></div>
+                <div class="c"><span class="pic"><svg class="vi"><use href="#i-back-ten"/></svg></span><span class="pic big"><svg class="vi"><use href="#i-play-fill"/></svg></span><span class="pic"><svg class="vi"><use href="#i-fwd-ten"/></svg></span></div>
+                <div class="r"><span class="pic on hov"><svg class="vi"><use href="#i-cc"/></svg></span><span class="pic p-f2"><svg class="vi"><use href="#i-gear"/></svg></span><span class="pic"><svg class="vi"><use href="#i-fullscreen"/></svg></span></div>
+              </div>
+            </div>
+          </div>
+          <div class="sub-ctl" style="padding:.55rem .8rem;margin:0;background:var(--bg-secondary);border-top:1px solid var(--border)">
+            <span class="sub-note">JA → EN · translated locally · 2 speakers</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ================= 4. MUSIC ID + SYNC STACK ================= -->
   <section class="feature">
     <div class="container split reverse">
@@ -4571,7 +5545,7 @@
         <div class="frame" role="img"
           aria-label="Editor tab, Mix and Match: two videos layered in sync on a shared song, with waveforms and a per-track mixer.">
           <div class="frame-bar">
-            <span class="tl"><i></i><i></i><i></i></span><span class="ftitle">Vault · localhost:8765</span>
+            <span class="ftitle">Vault · localhost:8765</span><span class="wctl" aria-hidden="true"><span><svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg></span><span><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></span><span class="x"><svg viewBox="0 0 10 10"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></span></span>
           </div>
           <div class="mh">
             <span class="mlogo"><svg class="vi"><use href="#i-lock"/></svg>Vault</span>
@@ -4616,69 +5590,11 @@
     </div>
   </section>
 
-  <!-- ================= 5. FACES + STUDIOS (v3.8) ================= -->
-  <!-- Mockup = the Faces tab (player-lib/faces-tab.js, css/faces-tab.css):
-     People | Studios, search with a photo, person cards, and the
-     "Same person?" question. Faces are abstract silhouettes. -->
-  <section class="feature" id="faces">
-    <div class="container split">
-      <div class="col-copy">
-        <span class="eyebrow"><span class="ln"></span>Face search · Studios</span>
-        <h2>Search by who's in it.</h2>
-        <p class="lead">Vault finds the people in every photo, GIF and video, then sorts them into a Faces tab you
-          can name and play. Click a face and see <strong>every file that person is in</strong>.</p>
-        <ul class="flist">
-          <li><svg class="vi"><use href="#i-check"/></svg> Search with a photo, or pause a video and find who's on screen</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> Name people once; "Same person?" asks before it merges anyone</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> Two face models: a fast one for the first pass, a sharper one to tell people apart</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> Studios group files and people by where they come from</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> Off until you turn it on. One download of about 213 MB, then it works offline and uploads nothing</li>
-        </ul>
-      </div>
-      <div class="col-view">
-        <div class="frame" role="img"
-          aria-label="Faces tab: People and Studios switch, search with a photo, person cards with names and file counts, and a Same person question.">
-          <div class="frame-bar">
-            <span class="tl"><i></i><i></i><i></i></span><span class="ftitle">Vault · localhost:8765</span>
-          </div>
-          <div class="mh">
-            <span class="mlogo"><svg class="vi"><use href="#i-lock"/></svg>Vault</span>
-            <nav class="mtabs">
-              <span class="mtab"><svg class="vi"><use href="#i-library"/></svg><span class="lbl hide-md">Library</span></span><span class="mtab on"><svg class="vi"><use href="#i-person"/></svg><span class="lbl">Faces</span></span><span class="mtab"><svg class="vi"><use href="#i-editor"/></svg><span class="lbl hide-md">Editor</span></span><span class="mtab"><svg class="vi"><use href="#i-wall"/></svg><span class="lbl hide-md">Wall</span></span>
-            </nav>
-            <span class="mright"><span class="mhb sq ok"><svg class="vi"><use href="#i-refresh"/></svg></span><span class="mgear"><svg class="vi"><use href="#i-gear"/></svg></span></span>
-          </div>
-          <div class="fbar">
-            <span class="mseg"><span class="on"><svg class="vi"><use href="#i-person"/></svg> People</span><span><svg class="vi"><use href="#i-building"/></svg> Studios</span></span>
-            <span class="fsearch"><svg class="vi"><use href="#i-search"/></svg> Find a person</span>
-            <span class="mtb on"><svg class="vi"><use href="#i-image"/></svg> Search with a photo</span>
-          </div>
-          <div class="fchips"><span class="rp on">Everyone <em>312</em></span><span class="rp">Favorites</span><span class="rp">Not named yet</span><span class="rp">Sort: Most files</span></div>
-          <div class="fbody">
-            <div class="fgrid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
-              <div class="fcard"><div class="fface g2"><span class="star">★</span><svg><use href="#silhouette"/></svg></div><div class="nm">Rae</div><div class="ct">48 files</div></div>
-              <div class="fcard"><div class="fface g5"><svg><use href="#silhouette"/></svg></div><div class="nm">Mila</div><div class="ct">31 files</div></div>
-              <div class="fcard"><div class="fface g4"><svg><use href="#silhouette"/></svg></div><div class="nm">Jade</div><div class="ct">27 files</div></div>
-              <div class="fcard"><div class="fface g3"><svg><use href="#silhouette"/></svg></div><div class="nm un">Not named yet</div><div class="nbtn"><svg class="vi"><use href="#i-edit"/></svg> Add a name</div></div>
-              <div class="fcard"><div class="fface g6"><svg><use href="#silhouette"/></svg></div><div class="nm">Nova</div><div class="ct">12 files</div></div>
-              <div class="fcard"><div class="fface g7"><svg><use href="#silhouette"/></svg></div><div class="nm">Iris</div><div class="ct">9 files</div></div>
-            </div>
-            <div class="fsame">
-              <h6>Same person?</h6>
-              <div class="fpair"><div class="fface g2"><svg><use href="#silhouette"/></svg></div><div class="fface g2" style="filter:hue-rotate(20deg) brightness(.9)"><svg><use href="#silhouette"/></svg></div></div>
-              <div class="fopt"><span class="pri">Yes, same person</span><span>No, different people</span><span>Not sure, skip</span></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
   <!-- ================= 6. AI PMV STUDIO ================= -->
-  <!-- Mockup = the real PMV Studio setup screen (player-lib/pmv.js):
+  <!-- Drawn after the real PMV Studio setup screen (player-lib/pmv.js):
      source picker, soundtrack order, options panel, job queue. -->
   <section class="feature">
-    <div class="container split reverse">
+    <div class="container split">
       <div class="col-copy">
         <span class="eyebrow"><span class="ln"></span>AI PMV Studio</span>
         <h2>Turn your own library into new edits.</h2>
@@ -4694,7 +5610,7 @@
         <div class="frame" role="img"
           aria-label="PMV Studio: selected source videos, a soundtrack, generation options, and a rendering job at 64%.">
           <div class="frame-bar">
-            <span class="tl"><i></i><i></i><i></i></span><span class="ftitle">Vault · localhost:8765</span>
+            <span class="ftitle">Vault · localhost:8765</span><span class="wctl" aria-hidden="true"><span><svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg></span><span><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></span><span class="x"><svg viewBox="0 0 10 10"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></span></span>
           </div>
           <div class="mh">
             <span class="mlogo"><svg class="vi"><use href="#i-lock"/></svg>Vault</span>
@@ -4770,135 +5686,11 @@
     </div>
   </section>
 
-  <!-- ================= 7. YOUR DATA · THE INFO PANEL ================= -->
-  <!-- Mockup = the Modern Info panel (player-lib/detail-view.js
-     renderDetailPanel, css/player/player-panel-modern.css): quick actions,
-     tabs, the Notes tab, the note box pinned under every tab, and the
-     collections picker. -->
-  <section class="feature" id="sidebar">
-    <div class="container split">
-      <div class="col-copy">
-        <span class="eyebrow"><span class="ln"></span>Your data · The Info panel</span>
-        <h2>AI writes the first draft. <br>You finish it.</h2>
-        <p class="lead">Every file carries a living Info panel, docked beside the player. Fave it, rate it, add it to
-          collections, pile on notes. Everything you add becomes <strong>instantly filterable and searchable</strong>
-          across the library.</p>
-        <ul class="flist">
-          <li><svg class="vi"><use href="#i-check"/></svg> Tabs for Details, Notes, Subtitles, Music, People and File, with quick actions along the top</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> The note box stays pinned under every tab, so a thought never costs you a click</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> Type "2:35" and it's a link that seeks; type "0:41.25-1:03.50" and it's a loop, exact to the hundredth</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> Saved quick notes become one-click chips; a picker drops the file into any collection</li>
-        </ul>
-      </div>
-      <div class="col-view">
-        <div class="ipwrap" role="img"
-          aria-label="The Info panel on its Notes tab: quick actions, tabs, notes with timestamps and a loop range, the pinned note box, and the collections picker.">
-          <div class="ip">
-            <div class="ipqa">
-              <span class="qb"><svg class="vi"><use href="#i-flag"/></svg></span><span class="qb"><svg class="vi"><use href="#i-trash"/></svg></span><span class="qb p-f2"><svg class="vi"><use href="#i-copy"/></svg></span><span class="qb p-f2"><svg class="vi"><use href="#i-refresh"/></svg></span><span class="qb"><svg class="vi"><use href="#i-spark"/></svg></span><span class="qb on"><svg class="vi"><use href="#i-folder"/></svg></span>
-              <span class="qsp"></span><span class="qb cl"><svg class="vi"><use href="#i-more"/></svg></span><span class="qb cl"><svg class="vi"><use href="#i-close"/></svg></span>
-            </div>
-            <div class="iptabs"><span>Details</span><span class="on">Notes<em>3</em></span><span>Subtitles</span><span>Music<em>2</em></span><span>People<em>1</em></span><span>File</span></div>
-            <div class="ipbody">
-              <div class="ipnote">
-                <div class="ts">Jun 28, 2026, 8:12 PM</div>
-                <div class="tx"><span class="lnk">2:35</span> is unreal, stack this with amateur_couple_hotel</div>
-                <span class="ed"><svg class="vi"><use href="#i-edit"/></svg><svg class="vi"><use href="#i-close"/></svg></span>
-              </div>
-              <div class="ipnote">
-                <div class="ts">Jul 3, 2026, 11:47 PM</div>
-                <div class="tx"><span class="lnk"><svg class="vi"><use href="#i-repeat"/></svg> 0:41.25-1:03.50</span> slow build, the best section</div>
-                <span class="ed"><svg class="vi"><use href="#i-edit"/></svg><svg class="vi"><use href="#i-close"/></svg></span>
-              </div>
-              <div class="ipnote">
-                <div class="ts">Jul 9, 2026, 10:02 PM</div>
-                <div class="tx">Watch again <span class="lnk">5:12</span></div>
-                <span class="ed"><svg class="vi"><use href="#i-edit"/></svg><svg class="vi"><use href="#i-close"/></svg></span>
-              </div>
-              <p class="iphint">Click a time to jump there; a range loops. Times can carry hundredths.</p>
-            </div>
-            <div class="ipbox">
-              <div class="ipadd">
-                <span class="ib"><svg class="vi"><use href="#i-clock"/></svg></span>
-                <span class="ipin"><span class="lnk">3:58</span> outro is perfect for a PMV<span class="caret"></span></span>
-                <span class="ib"><svg class="vi"><use href="#i-star"/></svg></span>
-                <span class="ib pri"><svg class="vi"><use href="#i-plus"/></svg></span>
-              </div>
-              <div class="snip"><span><i style="background:#f38ba8"></i>Watch again</span><span><i style="background:#a855f7"></i>cut for PMV</span><span>keeper</span></div>
-            </div>
-          </div>
-          <div class="cpick">
-            <div class="hd">Add to collection</div>
-            <div class="it on"><span class="bx"><svg class="vi"><use href="#i-check"/></svg></span> Night drives</div>
-            <div class="it on"><span class="bx"><svg class="vi"><use href="#i-check"/></svg></span> Best of 2026</div>
-            <div class="it"><span class="bx"></span> Chill</div>
-            <div class="nw"><svg class="vi"><use href="#i-plus"/></svg> New collection</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ================= 8. SUBTITLES ================= -->
-  <section class="feature">
-    <div class="container split reverse">
-      <div class="col-copy">
-        <span class="eyebrow"><span class="ln"></span>Subtitles</span>
-        <h2>Every video gets real subtitles. Even the foreign ones.</h2>
-        <p class="lead">One click transcribes the whole file on your own GPU - talking and singing - translates
-          foreign audio to English, and colors each speaker. Then every spoken line becomes
-          <strong>searchable</strong> from the library.</p>
-        <ul class="flist">
-          <li><svg class="vi"><use href="#i-check"/></svg> Off / On / Auto - Auto shows English only when the audio isn't English</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> Covers the whole file, start to finish, including the songs</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> Per-speaker colors when voices are separated; drag the captions anywhere</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> Wrong line? "Fix the lines around here" re-scans just the minute around the playhead</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> Generate on demand or during a scan - all local Whisper, zero cloud</li>
-        </ul>
-      </div>
-      <div class="col-view">
-        <div class="frame" role="img"
-          aria-label="The Modern player with auto-generated subtitles: two speakers in different colors, and the Subtitles menu set to Auto.">
-          <div class="pl">
-            <div class="scene night"></div>
-            <!-- SWAP-POINT: replace the .scene div above with <img src="assets/subs.jpg" alt=""> (it fills the frame) -->
-            <div class="ptop">
-              <span class="pic"><svg class="vi"><use href="#i-chev-left"/></svg></span><span class="t">cam_show_archive.mov</span><span class="sp"></span><span class="pic"><svg class="vi"><use href="#i-panel"/></svg></span><span class="pic"><svg class="vi"><use href="#i-close"/></svg></span>
-            </div>
-            <div class="psub side">
-              <span class="v1">This late at night?</span>
-              <span class="v2">The rain only just stopped.</span>
-            </div>
-            <div class="pmenu subs" style="right:12px;bottom:66px">
-              <div class="h"><svg class="vi"><use href="#i-chev-left"/></svg> Subtitles</div>
-              <div class="it"><span class="ck"></span>Off</div>
-              <div class="it"><span class="ck"></span>On</div>
-              <div class="it sel hl"><span class="ck"><svg class="vi"><use href="#i-check"/></svg></span>Auto (English, only for other languages)</div>
-              <div class="sep"></div>
-              <div class="it"><svg class="vi"><use href="#i-refresh"/></svg> Fix the lines around here</div>
-            </div>
-            <div class="pdock" style="padding-top:40px">
-              <div class="ptl"><div class="psegs"><span style="flex:62"><i style="width:58%"></i></span><span class="song" style="flex:24"></span><span style="flex:14"></span></div></div>
-              <div class="prow">
-                <div class="l"><span class="ptime">3:41 <span>/ 6:01</span></span></div>
-                <div class="c"><span class="pic"><svg class="vi"><use href="#i-back-ten"/></svg></span><span class="pic big"><svg class="vi"><use href="#i-play-fill"/></svg></span><span class="pic"><svg class="vi"><use href="#i-fwd-ten"/></svg></span></div>
-                <div class="r"><span class="pic on hov"><svg class="vi"><use href="#i-cc"/></svg></span><span class="pic p-f2"><svg class="vi"><use href="#i-gear"/></svg></span><span class="pic"><svg class="vi"><use href="#i-fullscreen"/></svg></span></div>
-              </div>
-            </div>
-          </div>
-          <div class="sub-ctl" style="padding:.55rem .8rem;margin:0;background:var(--bg-secondary);border-top:1px solid var(--border)">
-            <span class="sub-note">JA → EN · translated locally · 2 speakers</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
   <!-- ================= 9. OBSESSION SCORE ================= -->
-  <!-- Mockup = the gamify "phone" overlay (gamify-ui.js + gamify.css):
+  <!-- Drawn after the gamify "phone" overlay (gamify-ui.js + gamify.css):
      score hero, streak heatmap, quests with reroll, totals, share row. -->
   <section class="feature">
-    <div class="container split">
+    <div class="container split reverse">
       <div class="col-copy">
         <span class="eyebrow"><span class="ln"></span>Obsession Score · Optional</span>
         <h2>Curation that rewards you back.</h2>
@@ -4908,7 +5700,7 @@
         <ul class="flist">
           <li><svg class="vi"><use href="#i-check"/></svg> Quests generated from your own library and habits - one reroll a day if you don't like one</li>
           <li><svg class="vi"><use href="#i-check"/></svg> Full analytics - watch-time heatmap, 90-day activity, theme drift, library growth</li>
-          <li><svg class="vi"><use href="#i-check"/></svg> 9 levels, 6 unlockable UI themes, visible and secret achievements, a shareable stats card</li>
+          <li><svg class="vi"><use href="#i-check"/></svg> 11 levels that unlock 6 color themes for the score chip, its accents and the shareable stats card, plus visible and secret achievements</li>
           <li><svg class="vi"><use href="#i-check"/></svg> Fully local, fully optional - nothing shared, nothing uploaded</li>
         </ul>
       </div>
@@ -4988,10 +5780,10 @@
   </section>
 
   <!-- ================= 10. GAMES ================= -->
-  <!-- Mockup = the real Games home (games.js): game cards + saved-progress
+  <!-- Drawn after the real Games home (games.js): game cards + saved-progress
      row. The .shot box below is for a real mid-game capture. -->
   <section class="feature">
-    <div class="container split reverse">
+    <div class="container split">
       <div class="col-copy">
         <span class="eyebrow"><span class="ln"></span>Games</span>
         <h2>Have fun with your library.</h2>
@@ -5008,7 +5800,7 @@
         <div class="frame" role="img"
           aria-label="Games tab: Reel Order and Frame Fit cards, plus a saved game at 38% ready to resume.">
           <div class="frame-bar">
-            <span class="tl"><i></i><i></i><i></i></span><span class="ftitle">Vault · localhost:8765</span>
+            <span class="ftitle">Vault · localhost:8765</span><span class="wctl" aria-hidden="true"><span><svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg></span><span><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></span><span class="x"><svg viewBox="0 0 10 10"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></span></span>
           </div>
           <div class="mh">
             <span class="mlogo"><svg class="vi"><use href="#i-lock"/></svg>Vault</span>
@@ -5071,7 +5863,6 @@
             </div>
           </div>
         </div>
-        <!-- SCREENSHOT SLOT: replace this box with <img class="shot-img" src="assets/framefit.jpg"> -->
         <!-- <div class="shot" style="margin-top:.7rem;aspect-ratio:auto;padding:1.2rem">
         <div><b>Screenshot slot</b>Frame Fit mid-game - pieces scattered, video still playing</div>
       </div> -->
@@ -5080,11 +5871,11 @@
   </section>
 
   <!-- ================= 11. MODERN SETTINGS ================= -->
-  <!-- Mockup = Modern Settings (player-lib/settings-kit.js, settings-search.js,
+  <!-- Drawn after Settings (player-lib/settings-kit.js, settings-search.js,
      css/settings-modern.css): grouped menu with line icons and the search
      box, results that jump straight to the setting. -->
   <section class="feature">
-    <div class="container split">
+    <div class="container split reverse">
       <div class="col-copy">
         <span class="eyebrow"><span class="ln"></span>Settings · Shortcuts</span>
         <h2>Every setting, one search away.</h2>
@@ -5099,7 +5890,7 @@
       </div>
       <div class="col-view">
         <div class="frame" role="img"
-          aria-label="Modern Settings: the search box finds every thumbnail setting, with a Go to it link on each result.">
+          aria-label="Settings: the search box finds every thumbnail setting, with a Go to it link on each result.">
           <div class="shead">Settings <span class="sup"><svg class="vi"><use href="#i-heart"/></svg> Support Vault</span><span style="color:var(--text-muted);display:inline-flex"><svg class="vi"><use href="#i-close"/></svg></span></div>
           <div class="sdlg">
             <div class="snav">
@@ -5131,107 +5922,54 @@
     </div>
   </section>
 
-  <!-- ================= AND MORE: SINCE THE FIRST RELEASE ================= -->
+  <!-- ================= AND MORE (merged: old "And more" grid + small feature grid, as topic tabs) ================= -->
   <section class="feature" id="new">
     <div class="container">
-      <span class="eyebrow"><span class="ln"></span>Since the first release</span>
-      <h2 style="max-width:22ch">And more. A lot more.</h2>
-      <p class="lead">Everything that landed between 3.5 and 3.9, in a sentence each.</p>
-      <div class="newgrid">
-        <div class="nc"><div class="hd"><svg class="vi"><use href="#i-library"/></svg><h5>The Modern look</h5><span class="v">3.9</span></div><p>A calmer, full-width layout with line icons. Switch between Classic and Modern any time in Settings.</p></div>
-        <div class="nc"><div class="hd"><svg class="vi"><use href="#i-eye"/></svg><h5>Folder watchers</h5><span class="v">3.9</span></div><p>New, changed, moved and deleted files are picked up on their own. The eye in the header shows what changed.</p></div>
-        <div class="nc"><div class="hd"><svg class="vi"><use href="#i-pip"/></svg><h5>Floating mini player</h5><span class="v">3.9</span></div><p>Keep watching in a corner while you browse. Drag it and it snaps to the nearest corner, or Pop out.</p></div>
-        <div class="nc"><div class="hd"><svg class="vi"><use href="#i-spark"/></svg><h5>A clearer scan panel</h5><span class="v">3.9</span></div><p>The AI scan waits for the right model to load, then lists any file it couldn't read, with Retry.</p></div>
-        <div class="nc"><div class="hd"><svg class="vi"><use href="#i-keyboard"/></svg><h5>Keyboard shortcuts</h5><span class="v">3.9</span></div><p>Press ? anywhere for the full list. The keys for where you are now come first.</p></div>
-        <div class="nc"><div class="hd"><svg class="vi"><use href="#i-image"/></svg><h5>Thumbnail settings</h5><span class="v">3.9</span></div><p>Make them for every file, only when shown, or not at all, and cap the space they take.</p></div>
-        <div class="nc"><div class="hd"><svg class="vi"><use href="#i-person"/></svg><h5>Face search</h5><span class="v">3.8</span></div><p>People in every file, a Faces tab to name them, and search with a photo or a paused frame.</p></div>
-        <div class="nc"><div class="hd"><svg class="vi"><use href="#i-building"/></svg><h5>Studios</h5><span class="v">3.8</span></div><p>Group files and people by where they come from, with each studio's people and files on one page.</p></div>
-        <div class="nc"><div class="hd"><svg class="vi"><use href="#i-server"/></svg><h5>Big libraries load</h5><span class="v">3.7.4</span></div><p>Very large collections open without stalling.</p></div>
-        <div class="nc"><div class="hd"><svg class="vi"><use href="#i-zap"/></svg><h5>Scans 2-4x faster</h5><span class="v">3.7.2</span></div><p>Vault loads the vision model more than once when your GPU has room, so files scan side by side.</p></div>
-        <div class="nc"><div class="hd"><svg class="vi"><use href="#i-copy"/></svg><h5>Two Vaults at once</h5><span class="v">3.7.2</span></div><p>Give each library its own name and port. The name shows in the header and on the lock screen.</p></div>
-        <div class="nc"><div class="hd"><svg class="vi"><use href="#i-video"/></svg><h5>More files play</h5><span class="v">3.7</span></div><p>AVI, TS, FLV and MKV play right in the app, with AC3 and DTS audio converted on the fly.</p></div>
-        <div class="nc"><div class="hd"><svg class="vi"><use href="#i-repeat-one"/></svg><h5>Three-way repeat</h5><span class="v">3.7</span></div><p>Play the next file, start over at the end, or repeat this one.</p></div>
-        <div class="nc"><div class="hd"><svg class="vi"><use href="#i-lock"/></svg><h5>Privacy mode, your way</h5><span class="v">3.7</span></div><p>Choose exactly what it hides, from file paths and notes to thumbnails and file names.</p></div>
-        <div class="nc"><div class="hd"><svg class="vi"><use href="#i-folder"/></svg><h5>Moved your files?</h5><span class="v">3.6</span></div><p>Quick move swaps one folder for another; Deep search finds renamed files. Your data follows, no rescan.</p></div>
-        <div class="nc"><div class="hd"><svg class="vi"><use href="#i-rescan"/></svg><h5>Scan status filter</h5><span class="v">3.6</span></div><p>Show only the files that failed or never got scanned, then Rescan these in one click.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ================= SMALL FEATURE GRID ================= -->
-  <section class="feature">
-    <div class="container">
       <span class="eyebrow"><span class="ln"></span>The small stuff that adds up</span>
-      <h2 style="max-width:20ch">A real player, not a folder with previews.</h2>
-      <div class="mini">
-        <div class="card">
-          <div class="ic"><svg class="vi"><use href="#i-pip"/></svg></div>
-          <h5>Mini player</h5>
-          <p>Pop a video into a floating corner window and keep browsing the library while it plays.</p>
-        </div>
-        <div class="card">
-          <div class="ic"><svg class="vi"><use href="#i-beat"/></svg></div>
-          <h5>Beat bar</h5>
-          <p>A glass lane that pulses on the actual beats - shapes, stackable effects, dialed-in sync even on
-            3-hour files.</p>
-        </div>
-        <div class="card">
-          <div class="ic"><svg class="vi"><use href="#i-ab-loop"/></svg></div>
-          <h5>AB looping</h5>
-          <p>Loop any section in two presses - perfect for the part you actually came for.</p>
-        </div>
-        <div class="card">
-          <div class="ic"><svg class="vi"><use href="#i-clock"/></svg></div>
-          <h5>Resume &amp; view tracking</h5>
-          <p>Picks up where you left off; counts real engagement, not thumbnail flips. Hot and Done marks
-            the moments that nearly finished you off.</p>
-        </div>
-        <div class="card">
-          <div class="ic"><svg class="vi"><use href="#i-grid"/></svg></div>
-          <h5>Collections &amp; saved searches</h5>
-          <p>Custom playlists with Play All / Shuffle, and one-click colored chips for the filter combos you use most.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ic"><svg class="vi"><use href="#i-copy"/></svg></div>
-          <h5>Perceptual dedupe</h5>
-          <p>Catches re-encodes and resizes that filename matching misses - confirmed copies share notes automatically.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ic"><svg class="vi"><use href="#i-download"/></svg></div>
-          <h5>Drag &amp; drop import</h5>
-          <p>Drop files or folders onto the window - native folder picker, live import queue, cards appear instantly
-            while the AI catches up.</p>
-        </div>
-        <div class="card">
-          <div class="ic"><svg class="vi"><use href="#i-box"/></svg></div>
-          <h5>One portable app</h5>
-          <p>A single executable. No installer, no services, no registry - your library is a folder you can copy, back
-            up, or shred.</p>
-        </div>
-        <div class="card">
-          <div class="ic"><svg class="vi"><use href="#i-plug"/></svg></div>
-          <h5>Bring your own AI</h5>
-          <p>Works with LM Studio, Ollama, or vLLM - point it at one endpoint or several and it load-balances across
-            GPUs.</p>
-        </div>
-        <div class="card">
-          <div class="ic"><svg class="vi"><use href="#i-gif"/></svg></div>
-          <h5>Hover scrubbing</h5>
-          <p>YouTube-style frame previews on every card - in the library, the game picker, and the studio.</p>
-        </div>
-        <div class="card">
-          <div class="ic"><svg class="vi"><use href="#i-edit"/></svg></div>
-          <h5>Hand-fix anything</h5>
-          <p>The AI got one wrong? Edit any field from the Info panel, or rescan a single file - no full re-run.</p>
-        </div>
-        <div class="card">
-          <div class="ic"><svg class="vi"><use href="#i-vibe"/></svg></div>
-          <h5>Toy sync</h5>
-          <p>Lovense support rides the same beat grid as the beat bar - your hardware follows the music.</p>
-        </div>
+      <h2 style="max-width:22ch">And more. A lot more.</h2>
+      <p class="lead">The smaller features that add up, each in a line.</p>
+      <div class="mchips" role="tablist" aria-label="Feature topics">
+        <button type="button" role="tab" id="mt-playing" aria-controls="mp-playing" aria-selected="true" tabindex="0">Playing</button>
+        <button type="button" role="tab" id="mt-library" aria-controls="mp-library" aria-selected="false" tabindex="-1">Library</button>
+        <button type="button" role="tab" id="mt-ai" aria-controls="mp-ai" aria-selected="false" tabindex="-1">AI</button>
+        <button type="button" role="tab" id="mt-privacy" aria-controls="mp-privacy" aria-selected="false" tabindex="-1">Privacy</button>
+        <button type="button" role="tab" id="mt-setup" aria-controls="mp-setup" aria-selected="false" tabindex="-1">Setup</button>
       </div>
+      <div class="newgrid mpanel" role="tabpanel" id="mp-playing" aria-labelledby="mt-playing">
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-pip"/></svg><h5>Mini player</h5></div><p>Pop a video into a floating corner window and keep browsing. Drag it and it snaps to the nearest corner, or Pop out.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-clock"/></svg><h5>Resume and view tracking</h5></div><p>Picks up where you left off; counts real engagement, not thumbnail flips. Hot and Done mark the moments that nearly did you in.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-gif"/></svg><h5>Hover scrubbing</h5></div><p>YouTube-style frame previews on every card - in the library, the game picker, and the studio.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-video"/></svg><h5>Plays almost anything</h5></div><p>AVI, TS, FLV and MKV play right in the app, with AC3 and DTS audio converted on the fly.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-vibe"/></svg><h5>Toy sync</h5></div><p>Lovense support rides the same beat grid as the beat bar - your hardware follows the music.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-copy"/></svg><h5>Import and export playlists</h5></div><p>Turn a VLC or PotPlayer playlist into a collection, or export one to play where Vault isn't.</p></div>
+      </div>
+      <div class="newgrid mpanel" role="tabpanel" id="mp-library" aria-labelledby="mt-library" hidden>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-eye"/></svg><h5>Folder watchers</h5></div><p>Added, changed, moved and deleted files are picked up on their own. The eye in the header shows what changed.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-download"/></svg><h5>Drag and drop import</h5></div><p>Drop files or folders onto the window, or use the folder picker, and cards appear while the AI catches up. On Windows, hold still for a second to drop them exactly where they go.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-filter"/></svg><h5>Saved searches</h5></div><p>One-click colored chips for the filter combos you use most.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-grid"/></svg><h5>Duplicate finder</h5></div><p>Catches re-encodes and resizes that filename matching misses - confirmed copies share notes automatically.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-folder"/></svg><h5>Moved your files?</h5></div><p>Quick move swaps one folder for another; Deep search finds renamed files. Your data follows, no rescan.</p></div>
+      </div>
+      <div class="newgrid mpanel" role="tabpanel" id="mp-ai" aria-labelledby="mt-ai" hidden>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-plug"/></svg><h5>Bring your own AI</h5></div><p>Works with LM Studio, Ollama, or vLLM - point it at one endpoint or several and it load-balances across GPUs.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-zap"/></svg><h5>Parallel scanning</h5></div><p>Vault loads the vision model more than once when your GPU has room, so files scan side by side.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-rescan"/></svg><h5>Retry what failed</h5></div><p>Show only the files that failed or were never scanned, then rescan them in one click. The scan panel lists each file it couldn't read, with Retry.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-edit"/></svg><h5>Hand-fix anything</h5></div><p>The AI got one wrong? Edit any field from the Info panel, or rescan a single file - no full re-run.</p></div>
+      </div>
+      <div class="newgrid mpanel" role="tabpanel" id="mp-privacy" aria-labelledby="mt-privacy" hidden>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-lock"/></svg><h5>Privacy mode, your way</h5></div><p>Choose exactly what it hides, from file paths and notes to thumbnails and file names.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-image"/></svg><h5>Thumbnail settings</h5></div><p>Make them for every file, only when shown, or not at all, and cap the space they take.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-box"/></svg><h5>One portable app</h5></div><p>A single executable. No installer, no services, no registry - your library is a folder you can copy, back up, or shred.</p></div>
+      </div>
+      <div class="newgrid mpanel" role="tabpanel" id="mp-setup" aria-labelledby="mt-setup" hidden>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-server"/></svg><h5>Windows and Linux</h5></div><p>Runs on Windows, or on Linux from a tar.gz: extract it and run ./Vault.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-dock"/></svg><h5>Two Vaults at once</h5></div><p>Give each library its own name and port. The name shows in the header and on the lock screen.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-keyboard"/></svg><h5>Keyboard shortcuts</h5></div><p>Press ? anywhere for the full list. The keys for the screen you are on come first.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-refresh"/></svg><h5>Activity button</h5></div><p>One button in the top bar for everything running: AI scan, shares, face search, adding files and the trash queue.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-gear"/></svg><h5>Exit Vault</h5></div><p>A button at the bottom left of Settings stops Vault cleanly. It asks first, and it's the way to stop Vault on Linux when there is no window to close.</p></div>
+            <div class="nc"><div class="hd"><svg class="vi"><use href="#i-table"/></svg><h5>Built for big libraries</h5></div><p>Very large collections open without stalling.</p></div>
+      </div>
+      <p class="mrel"><a href="https://github.com/aericocode/Vault/releases">See every release <svg class="vi"><use href="#i-chevron"/></svg></a></p>
     </div>
   </section>
 
@@ -5243,8 +5981,8 @@
           <span class="eyebrow"><span class="ln"></span>Yours, period</span>
           <h2>It can't go down, because it was never up.</h2>
           <p class="lead">Everything runs on your machine - the AI, the fingerprinting, the subtitles, the face search,
-            all of it. <strong>No account, no cloud, no phone-home.</strong> Add a password and your entire collection
-            - and everything Vault knows about it - is sealed shut.
+            all of it. <strong>No account, no cloud, no phone-home</strong>, and nothing leaves unless you share it. Add a password and everything Vault knows about your collection
+            - titles, tags, notes, history, thumbnails, subtitles, faces - is sealed shut. Your media files stay as they are on your drive.
           </p>
           <ul class="flist">
             <li><svg class="vi"><use href="#i-check"/></svg> Lock with one click on the padlock - or it locks itself after you walk away</li>
@@ -5267,7 +6005,7 @@
             </div>
             <div class="vt">Vault locked</div>
             <div class="vs">Click the lock to unlock</div>
-            <div class="enc"><span class="dot"></span> Encrypted · ChaCha20 / AES-256</div>
+            <div class="enc"><span class="dot"></span> Encrypted · ChaCha20-Poly1305</div>
           </div>
         </div>
       </div>
@@ -5304,16 +6042,16 @@
   <!-- ================= FINAL CTA ================= -->
   <section class="final" id="apply">
     <div class="container">
-      <span class="eyebrow" style="justify-content:center;display:flex"><span class="ln"></span>Version 3.9 · Out now<span class="ln"></span></span>
+      <span class="eyebrow" style="justify-content:center;display:flex"><span class="ln"></span>Free for Windows and Linux<span class="ln"></span></span>
       <h2>Your collection is waiting.</h2>
-      <p class="lead">Bring your own collection and GPU - Vault does the rest.</p>
+      <p class="lead">Bring your collection. A GPU is optional.</p>
       <div class="cta-row">
         <a href="https://github.com/aericocode/Vault/releases" class="btn btn-ghost">Download Now</a>
       </div>
       <div class="fineprint">
         <span>Windows and Linux · one portable folder </span> ·
         <span>Delete it and it's gone - no accounts, no residue</span> ·
-        <span>Works with LM Studio, Ollama, vLLM</span>
+        <span>Optional AI works with LM Studio, Ollama, vLLM</span>
       </div>
     </div>
   </section>
@@ -5388,9 +6126,59 @@
         else if (!vis && on) { on = false; cancelAnimationFrame(raf); }
       }).observe(c);
     })();
+  
+
+    // "And more": topic tabs
+    (function () {
+      const tabs = [...document.querySelectorAll('#new [role=tab]')];
+      function pick(t, focus) {
+        tabs.forEach(x => {
+          const on = x === t;
+          x.setAttribute('aria-selected', String(on)); x.tabIndex = on ? 0 : -1;
+          document.getElementById(x.getAttribute('aria-controls')).hidden = !on;
+        });
+        if (focus) t.focus();
+      }
+      tabs.forEach((t, i) => {
+        t.addEventListener('click', () => pick(t, false));
+        t.addEventListener('keydown', (e) => {
+          const k = { ArrowRight: i + 1, ArrowDown: i + 1, ArrowLeft: i - 1, ArrowUp: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+          if (k === undefined) return;
+          e.preventDefault(); pick(tabs[(k + tabs.length) % tabs.length], true);
+        });
+      });
+    })();
+
+    // The theme picker in the Themes section re-themes the whole page.
+    (function () {
+      const root = document.documentElement, KEY = 'vault-site-theme', PALS = ["vault","midnight","ember","forest","rose","graphite"];
+      const st = { mode: 'dark', pal: 'vault' };
+      try {
+        const s = JSON.parse(localStorage.getItem(KEY) || 'null');
+        if (s && typeof s === 'object') {
+          if (['dark', 'light', 'system'].includes(s.mode)) st.mode = s.mode;
+          if (PALS.includes(s.pal)) st.pal = s.pal;
+        }
+      } catch (e) { /* no storage: start in Dark + Vault */ }
+      const mq = window.matchMedia ? matchMedia('(prefers-color-scheme: light)') : null;
+      function apply() {
+        const light = st.mode === 'light' || (st.mode === 'system' && !!(mq && mq.matches));
+        if (light) root.setAttribute('data-mode', 'light'); else root.removeAttribute('data-mode');
+        if (st.pal === 'vault') root.removeAttribute('data-pal'); else root.setAttribute('data-pal', st.pal);
+        document.querySelectorAll('[data-set-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.setMode === st.mode)));
+        document.querySelectorAll('[data-set-pal]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.setPal === st.pal)));
+      }
+      function save() { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) { /* not kept, still works */ } }
+      document.addEventListener('click', (e) => {
+        const m = e.target.closest('[data-set-mode]'), p = e.target.closest('[data-set-pal]');
+        if (m) { st.mode = m.dataset.setMode; apply(); save(); }
+        if (p) { st.pal = p.dataset.setPal; apply(); save(); }
+      });
+      if (mq && mq.addEventListener) mq.addEventListener('change', () => { if (st.mode === 'system') apply(); });
+      apply();
+    })();
   </script>
 
 </body>
-
 
 </html>
